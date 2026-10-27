@@ -23,6 +23,7 @@ func userID(c *gin.Context) (uuid.UUID, bool) {
 }
 
 func RegisterRoutes(protected *gin.RouterGroup, db *gorm.DB) {
+	registerTeamSyncRoute(protected, db)
 	registerInviteRoutes(protected, db)
 	registerVaultRoutes(protected, db)
 	registerMemberRoutes(protected, db)

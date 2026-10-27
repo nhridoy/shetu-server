@@ -19,6 +19,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&Team{},
 		&TeamMember{},
 		&TeamInvite{},
+		&TeamSyncOperation{},
 		&VaultKeyEnvelope{},
 		&VaultRotation{},
 		&Group{},

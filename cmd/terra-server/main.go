@@ -4,17 +4,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/gin-gonic/gin"
-	gormsqlite "github.com/glebarez/sqlite"
 	"github.com/nhridoy/terra-server/internal/auth"
 	"github.com/nhridoy/terra-server/internal/config"
+	"github.com/nhridoy/terra-server/internal/database"
 	"github.com/nhridoy/terra-server/internal/models"
 	syncapi "github.com/nhridoy/terra-server/internal/sync"
 	"github.com/nhridoy/terra-server/internal/teams"
-	"gorm.io/gorm"
 )
 
 func main() {
@@ -27,15 +25,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var db *gorm.DB
-	var err error
-
-	databaseDSN := cfg.DatabaseURL
-	if strings.HasPrefix(databaseDSN, "sqlite://") {
-		databaseDSN = strings.TrimPrefix(databaseDSN, "sqlite://")
-	}
-	db, err = gorm.Open(gormsqlite.Open(databaseDSN), &gorm.Config{})
-
+	db, err := database.Open(cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("failed to connect database", "error", err)
 		os.Exit(1)

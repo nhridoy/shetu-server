@@ -3,12 +3,25 @@ package models
 import (
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 func TestCanonicalUTCMillis(t *testing.T) {
 	legacy := time.Date(2026, 9, 27, 6, 0, 0, 123456789, time.FixedZone("BDT", 6*3600))
 	if got := CanonicalUTCMillis(legacy); got != "2026-09-27T00:00:00.123Z" {
 		t.Fatalf("canonical timestamp = %q", got)
+	}
+}
+
+type nonSQLiteDialector struct{ gorm.Dialector }
+
+func (nonSQLiteDialector) Name() string { return "postgres" }
+
+func TestTimestampMigrationSkipsNonSQLite(t *testing.T) {
+	db := &gorm.DB{Config: &gorm.Config{Dialector: nonSQLiteDialector{}}}
+	if err := MigrateTimestamps(db); err != nil {
+		t.Fatalf("MigrateTimestamps() on non-SQLite error = %v", err)
 	}
 }
 

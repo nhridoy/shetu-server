@@ -42,8 +42,13 @@ func parseLegacyTimestamp(value string) (time.Time, error) {
 }
 
 // MigrateTimestamps normalizes legacy SQLite datetime storage without changing encrypted payloads.
-// It is safe to rerun after a partial or complete upgrade.
+// It is safe to rerun after a partial or complete upgrade. Other databases
+// never stored the legacy formats this migration targets.
 func MigrateTimestamps(db *gorm.DB) error {
+	if db.Dialector.Name() != "sqlite" {
+		return nil
+	}
+
 	tables := map[string][]string{
 		"vaults":                {"created_at", "updated_at", "deleted_at"},
 		"groups":                {"created_at", "updated_at", "deleted_at"},

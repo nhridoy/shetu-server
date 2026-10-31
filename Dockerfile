@@ -1,37 +1,42 @@
-# syntax=docker/dockerfile:1.7
-
-FROM golang:1.26.8-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.8-alpine AS build
 
 WORKDIR /src
 
 # Cache dependencies separately from source changes.
 COPY go.mod go.sum ./
+
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY . .
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 
-# glebarez/sqlite and pgx are pure Go, so a static CGO-free binary works.
+# Build for the target platform.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/terra-server ./cmd/terra-server
+    CGO_ENABLED=0 \
+    GOOS=${TARGETOS} \
+    GOARCH=${TARGETARCH} \
+    go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/terra-server \
+    ./cmd/terra-server
 
 FROM alpine:3.24.3 AS runtime
 
-# hadolint ignore=DL3018
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 terra \
     && adduser -S -D -H -u 10001 -G terra terra \
     && mkdir -p /data \
     && chown terra:terra /data
 
-COPY --from=build /out/terra-server /usr/local/bin/terra-server
+COPY --from=build --chown=10001:10001 \
+    /out/terra-server \
+    /usr/local/bin/terra-server
 
-# Relative SQLite URLs (sqlite://terra.db) land on the writable data volume.
 WORKDIR /data
 
 USER 10001:10001

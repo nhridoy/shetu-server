@@ -36,7 +36,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := gin.Default()
+	r := gin.New()
+	// The Docker health check requests "/" every 30s; logging it buries real traffic.
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{"/"}}), gin.Recovery())
 
 	r.Use(auth.RequestID())
 	r.Use(auth.CORS(cfg.CORSAllowedOrigins))

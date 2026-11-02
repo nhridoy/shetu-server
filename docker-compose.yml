@@ -1,45 +1,13 @@
+# Local: builds the image from this checkout. Production uses
+# docker-compose.prod.yml, which pulls the published image instead.
 services:
   terra-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ghcr.io/nhridoy/terra-server:${TERRA_IMAGE_TAG:-latest}
-    restart: unless-stopped
-    init: true
-    env_file:
-      - .env
-    environment:
-      # The container always listens on 8080; TERRA_HTTP_PORT controls the
-      # host-side port only.
-      TERRA_HOST: "0.0.0.0"
-      TERRA_PORT: "8080"
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required; set it in .env}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required; set it in .env}
-    ports:
-      - "${TERRA_BIND_IP:-0.0.0.0}:${TERRA_HTTP_PORT:-8080}:8080"
-    volumes:
-      # Only used when DATABASE_URL points at SQLite. PostgreSQL deployments
-      # can leave this mounted; it stays empty.
-      - terra-data:/data
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,noexec,nosuid
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    stop_grace_period: 15s
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    extends:
+      file: docker-compose.prod.yml
+      service: terra-server
+    build: .
+    # A local tag, so a local build never shadows the published GHCR image.
+    image: terra-server:local
 
 volumes:
   terra-data:

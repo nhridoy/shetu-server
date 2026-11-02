@@ -17,7 +17,7 @@ func TestSuccessResponse(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	// verify envelope structure
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestSuccessResponse(t *testing.T) {
 		t.Fatal("response missing meta field")
 	}
 	// Check meta has request_id
-	meta, ok := resp["meta"].(map[string]interface{})
+	meta, ok := resp["meta"].(map[string]any)
 	if !ok {
 		t.Fatal("meta is not an object")
 	}
@@ -44,14 +44,14 @@ func TestErrorResponse(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 	if _, ok := resp["error"]; !ok {
 		t.Fatal("response missing error field")
 	}
-	errorObj, ok := resp["error"].(map[string]interface{})
+	errorObj, ok := resp["error"].(map[string]any)
 	if !ok {
 		t.Fatal("error is not an object")
 	}
@@ -72,11 +72,11 @@ func TestSuccessResponseWithRequestID(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Set("request_id", "req-123")
 	Success(c, http.StatusOK, gin.H{"id": "123"})
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
-	meta := resp["meta"].(map[string]interface{})
+	meta := resp["meta"].(map[string]any)
 	if meta["request_id"] != "req-123" {
 		t.Fatalf("expected request_id 'req-123', got %v", meta["request_id"])
 	}

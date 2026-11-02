@@ -16,19 +16,17 @@ type Claims struct {
 func GenerateAccessToken(userID uuid.UUID, deviceID string, cfg *config.Config) (string, error) {
 	now := time.Now()
 	accessClaims := Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID.String(),
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(cfg.JWTExpiry)),
-			ID:        uuid.New().String(),
-		},
-		DeviceID: deviceID,
+		Subject:   userID.String(),
+		IssuedAt:  jwt.NewNumericDate(now),
+		ExpiresAt: jwt.NewNumericDate(now.Add(cfg.JWTExpiry)),
+		ID:        uuid.New().String(),
+		DeviceID:  deviceID,
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(cfg.JWTSecret))
 }
 
 func VerifyAccessToken(tokenString string, cfg *config.Config) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
 		return []byte(cfg.JWTSecret), nil
 	})
 	if err != nil {

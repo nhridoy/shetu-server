@@ -55,7 +55,7 @@ func TestPushConflictAndPagination(t *testing.T) {
 	}
 	cursor := uint64(0)
 	seen := 0
-	for page := 0; page < 3; page++ {
+	for range 3 {
 		response := syncRequest(t, router, cfg, owner, device, "/api/v1/sync/pull", map[string]any{"vault_id": vaultID.String(), "after_cursor": cursor, "limit": 1})
 		if response.Code != http.StatusOK {
 			t.Fatalf("pull: %d %s", response.Code, response.Body.String())

@@ -80,7 +80,7 @@ func HandlePrelogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		found := db.Where("email = ?", req.Email).First(&user).Error == nil
 
 		if found {
-			kdf := map[string]interface{}{
+			kdf := map[string]any{
 				"m": user.KDFM,
 				"t": user.KDFT,
 				"p": user.KDFP,
@@ -100,7 +100,7 @@ func HandlePrelogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		kdf := map[string]interface{}{
+		kdf := map[string]any{
 			"m": 32768,
 			"t": 2,
 			"p": 1,
@@ -382,7 +382,7 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		now := time.Now()
-		db.Model(&rt).Updates(map[string]interface{}{
+		db.Model(&rt).Updates(map[string]any{
 			"revoked_at": &now,
 			"rotated_at": &now,
 		})
@@ -496,7 +496,7 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"auth_verifier": req.NewVerifier,
 		}
 		if req.NewServerSalt != "" {
@@ -836,7 +836,7 @@ func HandleRecoveryPrefetch(db *gorm.DB) gin.HandlerFunc {
 		Success(c, http.StatusOK, gin.H{
 			"nonce": nonce,
 			"email": user.Email,
-			"kdf": map[string]interface{}{
+			"kdf": map[string]any{
 				"m": user.KDFM,
 				"t": user.KDFT,
 				"p": user.KDFP,
@@ -926,7 +926,7 @@ func HandleVerifyEmail(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		now := time.Now()
-		if err := db.Model(&user).Updates(map[string]interface{}{
+		if err := db.Model(&user).Updates(map[string]any{
 			"email_verified_at": &now,
 			"last_login_at":     &now,
 		}).Error; err != nil {

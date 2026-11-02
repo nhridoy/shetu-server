@@ -288,11 +288,11 @@ func TestOAuthStart_JSONFormatWithAppCallback(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	authURL, ok := data["auth_url"].(string)
 	if !ok || !contains(authURL, "accounts.google.com") {
 		t.Errorf("expected auth_url for Google, got: %v", data["auth_url"])
@@ -514,12 +514,12 @@ func TestOAuthExchange_ValidCode(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["access_token"] == nil || data["access_token"] == "" {
 		t.Error("access_token should not be empty")
 	}
@@ -652,12 +652,12 @@ func TestOAuthSetup_ValidSetupToken(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["access_token"] == nil || data["access_token"] == "" {
 		t.Error("access_token should not be empty")
 	}

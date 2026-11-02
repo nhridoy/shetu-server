@@ -198,7 +198,7 @@ func TestRateLimit_AllowsWithinLimit(t *testing.T) {
 		c.JSON(200, gin.H{"ok": true})
 	})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "1.2.3.4:1234"
@@ -216,7 +216,7 @@ func TestRateLimit_RejectsOverLimit(t *testing.T) {
 		c.JSON(200, gin.H{"ok": true})
 	})
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "1.2.3.4:1234"
@@ -267,7 +267,7 @@ func TestRateLimit_XForwardedForSpoofDoesNotBypass(t *testing.T) {
 		c.JSON(200, gin.H{"ok": true})
 	})
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "5.6.7.8:1234"
@@ -296,7 +296,7 @@ func TestRateLimit_PreflightDoesNotConsumeBudget(t *testing.T) {
 		c.JSON(200, gin.H{"ok": true})
 	})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("OPTIONS", "/test", nil)
 		req.RemoteAddr = "1.2.3.4:1234"

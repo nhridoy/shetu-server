@@ -21,7 +21,7 @@ func TestExistingVaultGetsOneInitialSyncChange(t *testing.T) {
 	if err := db.Create(&vault).Error; err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := AutoMigrate(db); err != nil {
 			t.Fatal(err)
 		}

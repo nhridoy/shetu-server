@@ -2,6 +2,7 @@ package sync
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -37,9 +38,7 @@ func TestEverySavedRecordTypePushesAndPulls(t *testing.T) {
 		if item.table == "vaults" {
 			record["vault_id"] = ""
 		}
-		for key, value := range item.extra {
-			record[key] = value
-		}
+		maps.Copy(record, item.extra)
 		body := map[string]any{"vault_id": vaultID.String(), "device_id": device.String(), "operations": []any{map[string]any{"operation_id": op.String(), "table": item.table, "record": record}}}
 		response := syncRequest(t, router, cfg, owner, device, "/api/v1/sync/push", body)
 		if response.Code != http.StatusOK {

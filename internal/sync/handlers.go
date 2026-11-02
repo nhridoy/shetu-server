@@ -3,6 +3,7 @@ package sync
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"sync"
 
@@ -239,9 +240,7 @@ func applyOperation(tx *gorm.DB, vaultID uuid.UUID, operation PushOperation, dev
 		}
 	} else {
 		canonical := make(map[string]any, len(operation.Record)+1)
-		for key, value := range operation.Record {
-			canonical[key] = value
-		}
+		maps.Copy(canonical, operation.Record)
 		revision := 1
 		if found {
 			if old, ok := existing["revision"].(float64); ok {

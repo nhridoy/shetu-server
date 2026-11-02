@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,12 +67,7 @@ func getOAuthConfig(provider string, cfg *config.Config) (*oauth2.Config, error)
 }
 
 func isAllowedAppCallback(uri string, cfg *config.Config) bool {
-	for _, allowed := range cfg.OAuthRedirectURIs {
-		if uri == allowed {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(cfg.OAuthRedirectURIs, uri)
 }
 
 // oauthTargetURL builds the final redirect back into the client. Every

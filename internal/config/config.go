@@ -86,7 +86,7 @@ func Load() *Config {
 	cfg.SMTPFrom = os.Getenv("SMTP_FROM")
 
 	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
-		for _, cidr := range strings.Split(v, ",") {
+		for cidr := range strings.SplitSeq(v, ",") {
 			cidr = strings.TrimSpace(cidr)
 			if cidr != "" {
 				cfg.TrustedProxies = append(cfg.TrustedProxies, cidr)
@@ -102,7 +102,7 @@ func Load() *Config {
 	}
 	if v := os.Getenv("CORS_ALLOWED_ORIGINS"); v != "" {
 		cfg.CORSAllowedOrigins = nil
-		for _, o := range strings.Split(v, ",") {
+		for o := range strings.SplitSeq(v, ",") {
 			o = strings.TrimSpace(o)
 			if o != "" {
 				cfg.CORSAllowedOrigins = append(cfg.CORSAllowedOrigins, o)
@@ -117,7 +117,7 @@ func Load() *Config {
 	}
 	if v := getEnv("TERRA_OAUTH_REDIRECT_URIS", ""); v != "" {
 		cfg.OAuthRedirectURIs = nil
-		for _, uri := range strings.Split(v, ",") {
+		for uri := range strings.SplitSeq(v, ",") {
 			uri = strings.TrimSpace(uri)
 			if uri != "" {
 				cfg.OAuthRedirectURIs = append(cfg.OAuthRedirectURIs, uri)

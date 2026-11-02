@@ -22,7 +22,7 @@ func setupVerifyDB(t *testing.T) *gorm.DB {
 }
 
 func TestGenerateOtp_IsSixDigits(t *testing.T) {
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		otp, err := generateOtp()
 		if err != nil {
 			t.Fatal(err)

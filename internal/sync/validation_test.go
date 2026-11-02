@@ -3,6 +3,7 @@ package sync
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/google/uuid"
@@ -46,9 +47,7 @@ func TestValidateRecordRejectsPlaintextAndUnexpectedFields(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			value := make(map[string]any, len(base))
-			for key, item := range base {
-				value[key] = item
-			}
+			maps.Copy(value, base)
 			mutate(value)
 			if err := validateRecord("hosts", value, vaultID, deviceID, operationID); err == nil {
 				t.Fatal("invalid sync record accepted")

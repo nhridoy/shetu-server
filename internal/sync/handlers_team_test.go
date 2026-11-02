@@ -3,6 +3,7 @@ package sync
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -54,9 +55,7 @@ func TestTeamSyncActiveMemberOnly(t *testing.T) {
 		t.Fatalf("member pull: %d %s", got.Code, got.Body.String())
 	}
 	staleRecord := make(map[string]any, len(record))
-	for k, v := range record {
-		staleRecord[k] = v
-	}
+	maps.Copy(staleRecord, record)
 	staleRecord["data"] = teamCiphertext("hosts", vaultID, 2)
 	staleID := uuid.New()
 	staleRecord["operation_id"] = staleID.String()

@@ -37,7 +37,7 @@ func dialectorFor(databaseURL string) (gorm.Dialector, error) {
 	case strings.HasPrefix(databaseURL, sqlitePrefix):
 		return sqlite.Open(strings.TrimPrefix(databaseURL, sqlitePrefix)), nil
 	case strings.Contains(databaseURL, "://"):
-		scheme := strings.SplitN(databaseURL, "://", 2)[0]
+		scheme, _, _ := strings.Cut(databaseURL, "://")
 		return nil, fmt.Errorf("unsupported database URL scheme %q (supported: sqlite, postgres, postgresql)", scheme)
 	default:
 		return sqlite.Open(databaseURL), nil

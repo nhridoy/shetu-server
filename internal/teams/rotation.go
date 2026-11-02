@@ -11,6 +11,7 @@ import (
 	teamsync "github.com/nhridoy/terra-server/internal/sync"
 	"gorm.io/gorm"
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 )
@@ -39,12 +40,7 @@ type rotationStageRequest struct {
 
 func rotationRowKey(table string, id uuid.UUID) string { return table + ":" + id.String() }
 func rotationTableAllowed(name string) bool {
-	for _, t := range rotationTables {
-		if t == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(rotationTables, name)
 }
 func validRotationData(row rotationRow, vaultID uuid.UUID, epoch int) bool {
 	if !rotationTableAllowed(row.Table) || row.ID == uuid.Nil || row.Revision < 1 {
@@ -219,10 +215,7 @@ func registerRotationRoutes(protected *gin.RouterGroup, db *gorm.DB) {
 		})
 		after := c.Query("after")
 		start := sort.Search(len(rows), func(i int) bool { return rotationRowKey(rows[i].Table, rows[i].ID) > after })
-		end := start + 100
-		if end > len(rows) {
-			end = len(rows)
-		}
+		end := min(start+100, len(rows))
 		page := rows[start:end]
 		next := ""
 		if end < len(rows) {

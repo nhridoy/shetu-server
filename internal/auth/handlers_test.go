@@ -71,8 +71,8 @@ func testConfigWithVerification() *config.Config {
 	return cfg
 }
 
-func registerRequestPayload(email, userID string) map[string]interface{} {
-	return map[string]interface{}{
+func registerRequestPayload(email, userID string) map[string]any {
+	return map[string]any{
 		"user_id":       userID,
 		"email":         email,
 		"full_name":     email,
@@ -166,7 +166,7 @@ const testPublicKey = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHw"
 func seedRecoveryCode(db *gorm.DB, userID uuid.UUID, recoveryCode string) {
 	codeHash := sha256.Sum256([]byte(recoveryCode))
 	codeHashB64 := base64.RawStdEncoding.EncodeToString(codeHash[:])
-	db.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+	db.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"recovery_hash": codeHashB64,
 		"public_key":    testPublicKey,
 	})
@@ -222,12 +222,12 @@ func TestPrelogin_KnownEmail(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected data object, got %v", resp["data"])
 	}
@@ -242,7 +242,7 @@ func TestPrelogin_KnownEmail(t *testing.T) {
 		t.Error("nonce should not be empty")
 	}
 
-	kdf, ok := data["kdf"].(map[string]interface{})
+	kdf, ok := data["kdf"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected kdf object, got %v", data["kdf"])
 	}
@@ -272,12 +272,12 @@ func TestPrelogin_UnknownEmail(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["nonce"] == nil || data["nonce"] == "" {
 		t.Error("nonce should not be empty (random fallback)")
 	}
@@ -332,12 +332,12 @@ func TestRegister_NewUser(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["access_token"] == nil || data["access_token"] == "" {
 		t.Error("access_token should not be empty")
 	}
@@ -357,7 +357,7 @@ func TestRegister_NewUser(t *testing.T) {
 		t.Fatalf("expected refresh 200 after register, got %d: %s", w2.Code, w2.Body.String())
 	}
 
-	userObj, ok := data["user"].(map[string]interface{})
+	userObj, ok := data["user"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected user object, got %v", data["user"])
 	}
@@ -1067,11 +1067,11 @@ func TestRecoveryPrefetch(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["salt_cl"] != saltCL {
 		t.Errorf("salt_cl: want %q, got %v", saltCL, data["salt_cl"])
 	}
@@ -1147,19 +1147,19 @@ func TestLogin_CorrectProof(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["access_token"] == nil || data["access_token"] == "" {
 		t.Error("access_token should not be empty")
 	}
 	if data["refresh_token"] == nil || data["refresh_token"] == "" {
 		t.Error("refresh_token should not be empty")
 	}
-	userObj, ok := data["user"].(map[string]interface{})
+	userObj, ok := data["user"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected user object, got %v", data["user"])
 	}
@@ -1350,9 +1350,9 @@ func TestPrelogin_StoresNonce(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	nonce, _ := resp["data"].(map[string]interface{})["nonce"].(string)
+	nonce, _ := resp["data"].(map[string]any)["nonce"].(string)
 
 	var nonceRow models.LoginNonce
 	if err := db.Where("email = ? AND nonce_hash = ?", "stored@example.com", hashToken(nonce)).First(&nonceRow).Error; err != nil {
@@ -1422,12 +1422,12 @@ func TestRefresh_ValidToken(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["access_token"] == nil || data["access_token"] == "" {
 		t.Error("access_token should not be empty")
 	}
@@ -1574,12 +1574,12 @@ func TestMe_ValidToken(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["email"] != "me@example.com" {
 		t.Errorf("email: want me@example.com, got %v", data["email"])
 	}
@@ -1622,15 +1622,15 @@ func TestKeyring_ValidToken(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	if data["salt_cl"] != "test-salt-cl" {
 		t.Errorf("salt_cl: want test-salt-cl, got %v", data["salt_cl"])
 	}
-	keyring, ok := data["keyring"].(map[string]interface{})
+	keyring, ok := data["keyring"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected keyring object, got %v", data["keyring"])
 	}
@@ -2266,7 +2266,7 @@ func TestAttachRecoveryMaterial_ConflictWhenAlreadySet(t *testing.T) {
 
 	uid, _ := seedUserWithVerifier(t, db, "attach-conflict@example.com")
 	now := time.Now()
-	db.Model(&models.User{}).Where("id = ?", uid).Updates(map[string]interface{}{
+	db.Model(&models.User{}).Where("id = ?", uid).Updates(map[string]any{
 		"email_verified_at": &now,
 	})
 	seedRecoveryCode(db, uid, "existing-code")
@@ -2341,7 +2341,7 @@ func TestAttachRecoveryMaterial_HealsMissingRow(t *testing.T) {
 
 	uid, _ := seedUserWithVerifier(t, db, "attach-heal@example.com")
 	now := time.Now()
-	db.Model(&models.User{}).Where("id = ?", uid).Updates(map[string]interface{}{
+	db.Model(&models.User{}).Where("id = ?", uid).Updates(map[string]any{
 		"email_verified_at": &now,
 	})
 	seedRecoveryCode(db, uid, "stale-hash")

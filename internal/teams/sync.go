@@ -60,8 +60,7 @@ func registerTeamSyncRoute(protected *gin.RouterGroup, db *gorm.DB) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, teamSyncMaxBody)
 		var request teamSyncRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 				auth.Error(c, http.StatusRequestEntityTooLarge, "BODY_TOO_LARGE", "team sync request exceeds 256 KiB")
 				return
 			}

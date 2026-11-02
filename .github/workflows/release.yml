@@ -62,21 +62,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      # Pure-Go build (no cgo), so every OS/arch cross-compiles here.
       - name: Build server binaries
         run: |
           mkdir -p dist
-          for os in linux darwin windows; do
-            for arch in amd64 arm64; do
-              name="terra-server-$os-$arch"
-              bin=terra-server
-              [ "$os" = windows ] && bin=terra-server.exe
-              rm -f terra-server terra-server.exe
-              CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$bin" ./cmd/terra-server
-              if [ "$os" = windows ]; then zip -q "dist/$name.zip" "$bin"; else tar -czf "dist/$name.tar.gz" "$bin"; fi
-            done
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags="-s -w" -o terra-server ./cmd/terra-server
+            tar -czf "dist/terra-server-linux-$arch.tar.gz" terra-server
           done
-          (cd dist && sha256sum terra-server-* > SHA256SUMS)
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
       - name: Generate release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

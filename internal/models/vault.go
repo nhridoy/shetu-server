@@ -28,6 +28,18 @@ type Vault struct {
 	OperationID    uuid.UUID  `gorm:"type:uuid" json:"operation_id"`
 }
 
+// SyncRecord is the vault as clients receive it in the change feed. Clients
+// reject any other plaintext field, so server-only columns stay out.
+func (v Vault) SyncRecord() map[string]any {
+	return map[string]any{
+		"id": v.ID.String(), "vault_id": "", "revision": v.Revision,
+		"created_at": v.CreatedAt, "updated_at": v.UpdatedAt, "deleted_at": v.DeletedAt,
+		"edited_at": v.EditedAt, "device_id": v.DeviceID.String(), "operation_id": v.OperationID.String(),
+		"name": v.Name, "owner_id": v.OwnerID.String(), "kind": v.Kind,
+		"sort_order": v.SortOrder, "is_default": v.IsDefault, "data": v.Data,
+	}
+}
+
 func (Vault) TableName() string {
 	return "vaults"
 }

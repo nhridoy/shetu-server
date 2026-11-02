@@ -297,8 +297,7 @@ func applyTeamSyncMutation(tx *gorm.DB, actor uuid.UUID, operation teamSyncOpera
 			if err := tx.First(&updated, "id = ?", vaultID).Error; err != nil {
 				return "could not reload shared vault", "INTERNAL_ERROR"
 			}
-			record := map[string]any{"id": updated.ID.String(), "vault_id": "", "revision": updated.Revision, "created_at": updated.CreatedAt, "updated_at": updated.UpdatedAt, "deleted_at": updated.DeletedAt, "edited_at": updated.EditedAt, "device_id": uuid.Nil.String(), "operation_id": operation.OperationID.String(), "name": updated.Name, "owner_id": updated.OwnerID.String(), "kind": updated.Kind, "sort_order": updated.SortOrder, "is_default": updated.IsDefault, "data": updated.Data}
-			encoded, _ := json.Marshal(record)
+			encoded, _ := json.Marshal(updated.SyncRecord())
 			if err := tx.Create(&models.SyncChange{VaultID: vaultID, TableName: "vaults", RecordID: vaultID, Envelope: string(encoded)}).Error; err != nil {
 				return "could not publish vault rename", "INTERNAL_ERROR"
 			}

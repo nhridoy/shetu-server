@@ -177,12 +177,7 @@ func registerVaultRoutes(protected *gin.RouterGroup, db *gorm.DB) {
 			if err := tx.First(&updated, "id = ?", vaultID).Error; err != nil {
 				return err
 			}
-			record := map[string]any{"id": updated.ID.String(), "vault_id": "", "revision": updated.Revision,
-				"created_at": updated.CreatedAt, "updated_at": updated.UpdatedAt, "deleted_at": updated.DeletedAt,
-				"edited_at": updated.EditedAt, "device_id": uuid.Nil.String(), "operation_id": opID.String(),
-				"name": updated.Name, "owner_id": updated.OwnerID.String(), "kind": updated.Kind,
-				"sort_order": updated.SortOrder, "is_default": updated.IsDefault, "data": updated.Data}
-			encoded, err := json.Marshal(record)
+			encoded, err := json.Marshal(updated.SyncRecord())
 			if err != nil {
 				return err
 			}

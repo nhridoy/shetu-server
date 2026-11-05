@@ -2,6 +2,7 @@ package sync
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -53,5 +54,9 @@ func TestPushRejectsForeignRelationship(t *testing.T) {
 	response := syncRequest(t, router, cfg, owner, device, "/api/v1/sync/push", body)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("foreign relationship status %d: %s", response.Code, response.Body.String())
+	}
+	// The client logs this reason; a generic message hides which record is stuck.
+	if !strings.Contains(response.Body.String(), "relationship outside vault or missing: group_id") {
+		t.Fatalf("foreign relationship reason: %s", response.Body.String())
 	}
 }

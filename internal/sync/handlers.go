@@ -407,7 +407,12 @@ func HandlePush(db *gorm.DB) gin.HandlerFunc {
 			return nil
 		})
 		if err != nil {
-			c.JSON(status, gin.H{"error": "sync push failed"})
+			// Below 500 the error is one of this handler's fixed messages; clients log it.
+			message := "sync push failed"
+			if status < http.StatusInternalServerError {
+				message = err.Error()
+			}
+			c.JSON(status, gin.H{"error": message})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"results": results})

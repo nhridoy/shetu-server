@@ -3,6 +3,7 @@ package sync
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"sync"
@@ -29,6 +30,7 @@ func WithMutationBarrier(fn func() error) error {
 
 var errVaultHasLiveRecords = errors.New("vault still has live records")
 var errVaultDeleted = errors.New("vault is deleted")
+var errRelationshipLookup = errors.New("relationship lookup failed")
 
 func isHistoryTable(table string) bool {
 	return table == "session_history" || table == "session_output_chunks" || table == "session_preferences"
@@ -178,7 +180,7 @@ func validateRelationships(tx *gorm.DB, vaultID uuid.UUID, operation PushOperati
 		}
 		var count int64
 		if err := tx.Table(target[0]).Where("id = ? AND vault_id = ? AND deleted_at IS NULL", id, vaultID).Count(&count).Error; err != nil {
-			return err
+			return fmt.Errorf("%w: %w", errRelationshipLookup, err)
 		}
 		if count == 0 {
 			return errors.New("relationship outside vault or missing: " + field)
@@ -392,7 +394,10 @@ func HandlePush(db *gorm.DB) gin.HandlerFunc {
 					return errors.New("team ciphertext in private vault")
 				}
 				if err := validateRelationships(tx, vaultID, operation, pending); err != nil {
-					status = http.StatusBadRequest
+					// A failed lookup is a server fault, not a bad record: keep it at 500.
+					if !errors.Is(err, errRelationshipLookup) {
+						status = http.StatusBadRequest
+					}
 					return err
 				}
 				result, err := applyOperation(tx, vaultID, operation, deviceID)
@@ -407,7 +412,12 @@ func HandlePush(db *gorm.DB) gin.HandlerFunc {
 			return nil
 		})
 		if err != nil {
-			c.JSON(status, gin.H{"error": "sync push failed"})
+			// Below 500 the error is one of this handler's fixed messages; clients log it.
+			message := "sync push failed"
+			if status < http.StatusInternalServerError {
+				message = err.Error()
+			}
+			c.JSON(status, gin.H{"error": message})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"results": results})

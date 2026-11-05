@@ -60,3 +60,20 @@ func TestPushRejectsForeignRelationship(t *testing.T) {
 		t.Fatalf("foreign relationship reason: %s", response.Body.String())
 	}
 }
+
+func TestPushHidesRelationshipLookupErrors(t *testing.T) {
+	db, router, cfg, owner, _, vaultID := syncTestServer(t)
+	// Make the relationship lookup itself fail.
+	if err := db.Migrator().DropTable(&models.Group{}); err != nil {
+		t.Fatal(err)
+	}
+	device, op := uuid.New(), uuid.New()
+	record := map[string]any{"id": uuid.New().String(), "vault_id": vaultID.String(), "revision": 1,
+		"created_at": "2026-09-27T10:20:30.000Z", "updated_at": "2026-09-27T10:20:30.000Z", "edited_at": "2026-09-27T10:20:30.000Z",
+		"device_id": device.String(), "operation_id": op.String(), "name": "Host", "group_id": uuid.New().String(), "sort_order": 0, "data": encryptedData("hosts")}
+	body := map[string]any{"vault_id": vaultID.String(), "device_id": device.String(), "operations": []any{map[string]any{"operation_id": op.String(), "table": "hosts", "record": record}}}
+	response := syncRequest(t, router, cfg, owner, device, "/api/v1/sync/push", body)
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), `"sync push failed"`) {
+		t.Fatalf("lookup failure must stay generic: %d %s", response.Code, response.Body.String())
+	}
+}

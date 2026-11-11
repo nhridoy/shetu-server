@@ -21,8 +21,8 @@
 ## What it does
 
 - **Sign-in and accounts:** email and password with optional email verification over SMTP, refresh tokens, password change and recovery, and optional Google and GitHub OAuth. Login endpoints are rate limited.
-- **Encrypted sync:** stores the desktop app's vault records and syncs them between devices. Records are encrypted on each device before they arrive; the server checks their shape and stores them, and never decrypts them.
-- **Teams:** create teams, invite people who already have an account, owner, admin and member roles, and shared vaults. Each shared vault has its own key, sealed to each member and rotated when someone is removed.
+- **Encrypted sync:** stores the desktop app's vault records and syncs them between devices. Sensitive fields (host addresses, usernames, passwords, private keys, commands) are encrypted on each device before they arrive; the server checks each record's shape, stores it and never decrypts it. Names, tags and timestamps stay readable so the server can sync them.
+- **Teams:** create teams, invite people who already have an account, owner, admin and member roles, and shared vaults. Each shared vault has its own key, sealed to each member. Removing a member flags the team's vaults for a key rotation, which an owner or admin completes from the app with **Rotate keys**.
 
 What the server can and cannot see is listed in the [security reference](https://terra.iamnahid.com/docs/security#what-the-server-can-see). SSH traffic never passes through it: the desktop app connects to your hosts directly.
 
@@ -32,10 +32,11 @@ Built with Go, [Gin](https://gin-gonic.com) and [GORM](https://gorm.io). Postgre
 
 Releases publish `ghcr.io/nhridoy/terra-server` for `linux/amd64` and `linux/arm64`, plus Linux binaries on the [releases page](https://github.com/nhridoy/terra-server/releases).
 
-`docker-compose.prod.yml` is self-contained and only pulls the published image, so a host needs that file and a `.env`:
+`docker-compose.prod.yml` only pulls the published image, so a host needs just that file and a `.env` made from `.env.example`:
 
 ```bash
-cp .env.example .env
+curl -fsSLO https://raw.githubusercontent.com/nhridoy/terra-server/main/docker-compose.prod.yml
+curl -fsSL https://raw.githubusercontent.com/nhridoy/terra-server/main/.env.example -o .env
 # Set DATABASE_URL (PostgreSQL), JWT_SECRET and BASE_URL in .env.
 # Generate a secret with: openssl rand -base64 48
 # Optionally pin a release with TERRA_IMAGE_TAG=0.0.6 (default: latest).
@@ -43,7 +44,7 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-The container listens on 8080; `TERRA_HTTP_PORT` and `TERRA_BIND_IP` control the host side. Put it behind a TLS-terminating reverse proxy such as Caddy, then set `BASE_URL` to the public HTTPS URL and `TRUSTED_PROXIES` to the proxy's address.
+The container listens on 8080; `TERRA_HTTP_PORT` and `TERRA_BIND_IP` control the host side. Always put it behind a TLS-terminating reverse proxy such as Caddy, then set `BASE_URL` to the public HTTPS URL and `TRUSTED_PROXIES` to the proxy's address. **If the proxy runs on the same host, set `TERRA_BIND_IP=127.0.0.1`.** The default `0.0.0.0` publishes plain HTTP on every interface, where clients could bypass TLS and send credentials unencrypted. Otherwise, firewall port 8080 so only the proxy can reach it.
 
 The [self-hosting guide](https://terra.iamnahid.com/docs/server) has a full Compose file with PostgreSQL, the reverse proxy setup, OAuth, email verification and upgrades.
 

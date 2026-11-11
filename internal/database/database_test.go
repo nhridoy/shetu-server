@@ -15,13 +15,13 @@ func TestDialectorForSelectsDriver(t *testing.T) {
 		wantDSN string
 		wantErr string
 	}{
-		{name: "sqlite relative path", dsn: "sqlite://terra.db", want: "sqlite", wantDSN: "terra.db"},
-		{name: "sqlite absolute path", dsn: "sqlite:///data/terra.db", want: "sqlite", wantDSN: "/data/terra.db"},
+		{name: "sqlite relative path", dsn: "sqlite://shetu.db", want: "sqlite", wantDSN: "shetu.db"},
+		{name: "sqlite absolute path", dsn: "sqlite:///data/shetu.db", want: "sqlite", wantDSN: "/data/shetu.db"},
 		{name: "sqlite options preserved", dsn: "sqlite://teams.db?cache=shared&_fk=1", want: "sqlite", wantDSN: "teams.db?cache=shared&_fk=1"},
-		{name: "plain sqlite path", dsn: "terra.db", want: "sqlite", wantDSN: "terra.db"},
-		{name: "postgres url", dsn: "postgres://user:pass@localhost:5432/terra", want: "postgres"},
-		{name: "postgresql url", dsn: "postgresql://user:pass@localhost:5432/terra", want: "postgres"},
-		{name: "unsupported scheme", dsn: "mysql://user:pass@localhost:3306/terra", wantErr: "unsupported database URL scheme"},
+		{name: "plain sqlite path", dsn: "shetu.db", want: "sqlite", wantDSN: "shetu.db"},
+		{name: "postgres url", dsn: "postgres://user:pass@localhost:5432/shetu", want: "postgres"},
+		{name: "postgresql url", dsn: "postgresql://user:pass@localhost:5432/shetu", want: "postgres"},
+		{name: "unsupported scheme", dsn: "mysql://user:pass@localhost:3306/shetu", wantErr: "unsupported database URL scheme"},
 		{name: "empty url", dsn: "", wantErr: "database URL is empty"},
 	}
 

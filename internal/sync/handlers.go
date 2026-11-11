@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/nhridoy/terra-server/internal/models"
+	"github.com/nhridoy/shetu-server/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

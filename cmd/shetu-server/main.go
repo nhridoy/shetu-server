@@ -7,12 +7,12 @@ import (
 	"syscall"
 
 	"github.com/gin-gonic/gin"
-	"github.com/nhridoy/terra-server/internal/auth"
-	"github.com/nhridoy/terra-server/internal/config"
-	"github.com/nhridoy/terra-server/internal/database"
-	"github.com/nhridoy/terra-server/internal/models"
-	syncapi "github.com/nhridoy/terra-server/internal/sync"
-	"github.com/nhridoy/terra-server/internal/teams"
+	"github.com/nhridoy/shetu-server/internal/auth"
+	"github.com/nhridoy/shetu-server/internal/config"
+	"github.com/nhridoy/shetu-server/internal/database"
+	"github.com/nhridoy/shetu-server/internal/models"
+	syncapi "github.com/nhridoy/shetu-server/internal/sync"
+	"github.com/nhridoy/shetu-server/internal/teams"
 )
 
 func main() {
@@ -49,7 +49,7 @@ func main() {
 	}
 
 	r.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "Terra API"})
+		c.JSON(200, gin.H{"message": "Shetu API"})
 	})
 
 	apiAuth := r.Group("/api/v1/auth")

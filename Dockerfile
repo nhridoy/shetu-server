@@ -22,27 +22,27 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
     -trimpath \
     -ldflags="-s -w" \
-    -o /out/terra-server \
-    ./cmd/terra-server
+    -o /out/shetu-server \
+    ./cmd/shetu-server
 
 FROM alpine:3.24.3 AS runtime
 
 RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S -g 10001 terra \
-    && adduser -S -D -H -u 10001 -G terra terra \
+    && addgroup -S -g 10001 shetu \
+    && adduser -S -D -H -u 10001 -G shetu shetu \
     && mkdir -p /data \
-    && chown terra:terra /data
+    && chown shetu:shetu /data
 
 COPY --from=build --chown=10001:10001 \
-    /out/terra-server \
-    /usr/local/bin/terra-server
+    /out/shetu-server \
+    /usr/local/bin/shetu-server
 
 WORKDIR /data
 
 USER 10001:10001
 
-ENV TERRA_HOST=0.0.0.0 \
-    TERRA_PORT=8080 \
+ENV SHETU_HOST=0.0.0.0 \
+    SHETU_PORT=8080 \
     GIN_MODE=release \
     TZ=UTC
 
@@ -53,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 STOPSIGNAL SIGTERM
 
-ENTRYPOINT ["/usr/local/bin/terra-server"]
+ENTRYPOINT ["/usr/local/bin/shetu-server"]

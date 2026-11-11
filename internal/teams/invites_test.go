@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	gormsqlite "github.com/glebarez/sqlite"
 	"github.com/google/uuid"
-	"github.com/nhridoy/terra-server/internal/models"
+	"github.com/nhridoy/shetu-server/internal/models"
 	"gorm.io/gorm"
 )
 

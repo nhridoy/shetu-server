@@ -23,7 +23,7 @@ temp/
 bin/
 
 # Build artifacts and test output
-terra-server
+shetu-server
 *.exe
 *.test
 *.out

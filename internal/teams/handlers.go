@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/nhridoy/terra-server/internal/auth"
-	"github.com/nhridoy/terra-server/internal/models"
-	teamsync "github.com/nhridoy/terra-server/internal/sync"
+	"github.com/nhridoy/shetu-server/internal/auth"
+	"github.com/nhridoy/shetu-server/internal/models"
+	teamsync "github.com/nhridoy/shetu-server/internal/sync"
 	"gorm.io/gorm"
 )
 

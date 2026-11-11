@@ -2,8 +2,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build -o ./tmp/terra-server.exe ./cmd/terra-server"
-  bin = "./tmp/terra-server.exe"
+  cmd = "go build -o ./tmp/shetu-server.exe ./cmd/shetu-server"
+  bin = "./tmp/shetu-server.exe"
   delay = 1000
   exclude_dir = ["tmp", "vendor", "testdata", "node_modules"]
   exclude_regex = ["_test.go"]

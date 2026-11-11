@@ -3,27 +3,27 @@
 #   docker compose -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.prod.yml up -d
 services:
-  terra-server:
-    # Pin a release (TERRA_IMAGE_TAG=0.0.3) for reproducible deploys; `latest`
+  shetu-server:
+    # Pin a release (SHETU_IMAGE_TAG=0.0.3) for reproducible deploys; `latest`
     # follows the newest stable release. Multi-arch: linux/amd64, linux/arm64.
-    image: ghcr.io/nhridoy/terra-server:${TERRA_IMAGE_TAG:-latest}
+    image: ghcr.io/nhridoy/shetu-server:${SHETU_IMAGE_TAG:-latest}
     restart: unless-stopped
     init: true
     env_file:
       - .env
     environment:
-      # The container always listens on 8080; TERRA_HTTP_PORT controls the
+      # The container always listens on 8080; SHETU_HTTP_PORT controls the
       # host-side port only.
-      TERRA_HOST: "0.0.0.0"
-      TERRA_PORT: "8080"
+      SHETU_HOST: "0.0.0.0"
+      SHETU_PORT: "8080"
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required; set it in .env}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required; set it in .env}
     ports:
-      - "${TERRA_BIND_IP:-0.0.0.0}:${TERRA_HTTP_PORT:-8080}:8080"
+      - "${SHETU_BIND_IP:-0.0.0.0}:${SHETU_HTTP_PORT:-8080}:8080"
     volumes:
       # Only used when DATABASE_URL points at SQLite. PostgreSQL deployments
       # can leave this mounted; it stays empty.
-      - terra-data:/data
+      - shetu-data:/data
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
@@ -45,4 +45,4 @@ services:
         max-file: "3"
 
 volumes:
-  terra-data:
+  shetu-data:

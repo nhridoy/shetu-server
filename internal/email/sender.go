@@ -28,8 +28,8 @@ func (s *Sender) Enabled() bool {
 }
 
 func (s *Sender) SendOtp(to, code string) error {
-	subject := "Your Terra verification code"
-	html := fmt.Sprintf("<p>Your Terra verification code is:</p><p style=\"font-size:24px;font-weight:bold\">%s</p><p>It expires in 15 minutes.</p>", code)
+	subject := "Your Shetu verification code"
+	html := fmt.Sprintf("<p>Your Shetu verification code is:</p><p style=\"font-size:24px;font-weight:bold\">%s</p><p>It expires in 15 minutes.</p>", code)
 
 	if !s.Enabled() {
 		if !s.LogOtpFallback {

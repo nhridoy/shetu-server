@@ -27,9 +27,9 @@ var dbLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Conf
 // Open connects to the database selected by DATABASE_URL.
 //
 // Supported forms:
-//   - sqlite://path/to/terra.db (SQLite, used for local development)
-//   - postgres://user:pass@host:5432/terra (PostgreSQL, used in production)
-//   - postgresql://user:pass@host:5432/terra (alias)
+//   - sqlite://path/to/shetu.db (SQLite, used for local development)
+//   - postgres://user:pass@host:5432/shetu (PostgreSQL, used in production)
+//   - postgresql://user:pass@host:5432/shetu (alias)
 //
 // A bare path is treated as SQLite for backwards compatibility.
 func Open(databaseURL string) (*gorm.DB, error) {

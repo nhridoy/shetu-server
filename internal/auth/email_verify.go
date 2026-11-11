@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/nhridoy/terra-server/internal/models"
+	"github.com/nhridoy/shetu-server/internal/models"
 	"gorm.io/gorm"
 )
 

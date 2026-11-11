@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/nhridoy/terra-server/internal/config"
+	"github.com/nhridoy/shetu-server/internal/config"
 )
 
 func TestGenerateAccessToken(t *testing.T) {

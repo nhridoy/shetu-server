@@ -1,4 +1,4 @@
-module github.com/nhridoy/terra-server
+module github.com/nhridoy/shetu-server
 
 go 1.27.3
 

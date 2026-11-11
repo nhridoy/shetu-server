@@ -39,7 +39,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/terra-server
+          images: ghcr.io/${{ github.repository_owner }}/shetu-server
           tags: type=semver,pattern={{version}}
           flavor: latest=auto
       - uses: docker/build-push-action@v6
@@ -66,8 +66,8 @@ jobs:
         run: |
           mkdir -p dist
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags="-s -w" -o terra-server ./cmd/terra-server
-            tar -czf "dist/terra-server-linux-$arch.tar.gz" terra-server
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags="-s -w" -o shetu-server ./cmd/shetu-server
+            tar -czf "dist/shetu-server-linux-$arch.tar.gz" shetu-server
           done
           (cd dist && sha256sum *.tar.gz > SHA256SUMS)
       - name: Generate release notes
@@ -75,7 +75,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f "tag_name=${GITHUB_REF_NAME}" --jq '.body' > release-notes.md
-          printf '\n**Docker:** `docker pull ghcr.io/%s/terra-server:%s` (linux/amd64, linux/arm64)\n' "${GITHUB_REPOSITORY_OWNER}" "${GITHUB_REF_NAME#v}" >> release-notes.md
+          printf '\n**Docker:** `docker pull ghcr.io/%s/shetu-server:%s` (linux/amd64, linux/arm64)\n' "${GITHUB_REPOSITORY_OWNER}" "${GITHUB_REF_NAME#v}" >> release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}

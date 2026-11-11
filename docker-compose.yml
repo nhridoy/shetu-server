@@ -1,13 +1,13 @@
 # Local: builds the image from this checkout. Production uses
 # docker-compose.prod.yml, which pulls the published image instead.
 services:
-  terra-server:
+  shetu-server:
     extends:
       file: docker-compose.prod.yml
-      service: terra-server
+      service: shetu-server
     build: .
     # A local tag, so a local build never shadows the published GHCR image.
-    image: terra-server:local
+    image: shetu-server:local
 
 volumes:
-  terra-data:
+  shetu-data:

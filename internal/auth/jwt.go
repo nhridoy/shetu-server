@@ -5,7 +5,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/nhridoy/terra-server/internal/config"
+	"github.com/nhridoy/shetu-server/internal/config"
 )
 
 type Claims struct {

@@ -79,6 +79,10 @@ go test ./...
 
 Releases are built by CI when a `v*` tag is pushed: tests run, Linux binaries are published and the multi-arch image is pushed to GHCR. Tags with a `-` (such as `v0.1.0-beta.1`) are prereleases.
 
+## Roadmap
+
+Planned work for the whole project, including the server, is in the [roadmap](https://github.com/nhridoy/terra#roadmap).
+
 ## Related
 
 - [terra-client](https://github.com/nhridoy/terra-client): the desktop SSH client

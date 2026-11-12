@@ -651,7 +651,7 @@ func teamSyncSnapshot(db *gorm.DB, actor uuid.UUID, cursor *uuid.UUID) (map[stri
 			}
 			for _, member := range teamMembers {
 				var user models.User
-				if err := db.Select("id", "email", "full_name", "public_key").First(&user, "id = ?", member.UserID).Error; err != nil {
+				if err := db.Select("id", "email", "full_name", "avatar_url", "public_key").First(&user, "id = ?", member.UserID).Error; err != nil {
 					return nil, uuid.Nil, false, err
 				}
 				publicKey := ""
@@ -660,7 +660,7 @@ func teamSyncSnapshot(db *gorm.DB, actor uuid.UUID, cursor *uuid.UUID) (map[stri
 					publicKey = *user.PublicKey
 					fingerprint, _ = FingerprintPublicKey(publicKey)
 				}
-				members = append(members, map[string]any{"id": member.ID, "team_id": member.TeamID, "user_id": member.UserID, "email": user.Email, "full_name": user.FullName, "role": member.Role, "created_at": member.CreatedAt, "public_key": publicKey, "fingerprint": fingerprint})
+				members = append(members, map[string]any{"id": member.ID, "team_id": member.TeamID, "user_id": member.UserID, "email": user.Email, "full_name": user.FullName, "avatar_url": user.AvatarURL, "role": member.Role, "created_at": member.CreatedAt, "public_key": publicKey, "fingerprint": fingerprint})
 			}
 		}
 		if len(teamIDs) > 0 {

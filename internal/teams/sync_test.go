@@ -91,3 +91,61 @@ func TestTeamSyncRejectsOversizedOperationBatch(t *testing.T) {
 		t.Fatalf("expected bounded batch rejection, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestTeamSyncSnapshotIncludesMemberAvatarURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(gormsqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := models.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	actor := uuid.New()
+	if err := db.Create(&models.User{ID: actor, Email: "pic@example.com", FullName: "Pic", AvatarURL: "https://avatars.example.com/p.png"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("user_id", actor); c.Next() })
+	RegisterRoutes(router.Group("/api/v1"), db)
+	body, _ := json.Marshal(map[string]any{"operations": []any{map[string]any{
+		"operation_id": uuid.New(), "type": "team.create", "payload": map[string]any{"team_id": uuid.New(), "name": "Pics"},
+	}}})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/teams/sync", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("sync status %d: %s", resp.Code, resp.Body)
+	}
+
+	// Find the snapshot's members wherever the envelope nests them.
+	var decoded any
+	if err := json.Unmarshal(resp.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	var members []any
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			if m, ok := x["members"].([]any); ok && len(m) > 0 {
+				members = m
+			}
+			for _, child := range x {
+				walk(child)
+			}
+		case []any:
+			for _, child := range x {
+				walk(child)
+			}
+		}
+	}
+	walk(decoded)
+	if len(members) != 1 {
+		t.Fatalf("expected 1 member in snapshot, got %d: %s", len(members), resp.Body)
+	}
+	if got := members[0].(map[string]any)["avatar_url"]; got != "https://avatars.example.com/p.png" {
+		t.Errorf("member avatar_url = %v", got)
+	}
+}

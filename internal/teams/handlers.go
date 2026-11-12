@@ -137,6 +137,7 @@ func RegisterRoutes(protected *gin.RouterGroup, db *gorm.DB) {
 			UserID      uuid.UUID `json:"user_id"`
 			Email       string    `json:"email"`
 			Username    string    `json:"username"`
+			AvatarURL   string    `json:"avatar_url,omitempty"`
 			Role        string    `json:"role"`
 			JoinedAt    string    `json:"joined_at"`
 			PublicKey   string    `json:"public_key"`
@@ -145,12 +146,12 @@ func RegisterRoutes(protected *gin.RouterGroup, db *gorm.DB) {
 		result := make([]memberView, 0, len(members))
 		for _, member := range members {
 			var user models.User
-			if err := db.Select("id", "email", "full_name", "public_key").First(&user, "id = ?", member.UserID).Error; err != nil {
+			if err := db.Select("id", "email", "full_name", "avatar_url", "public_key").First(&user, "id = ?", member.UserID).Error; err != nil {
 				auth.Error(c, http.StatusInternalServerError, "MEMBER_LIST_FAILED", "could not list members")
 				return
 			}
 			view := memberView{ID: member.ID, UserID: user.ID, Email: user.Email, Username: user.FullName,
-				Role: member.Role, JoinedAt: member.CreatedAt}
+				AvatarURL: user.AvatarURL, Role: member.Role, JoinedAt: member.CreatedAt}
 			if user.PublicKey != nil {
 				view.PublicKey = *user.PublicKey
 				view.Fingerprint, _ = FingerprintPublicKey(*user.PublicKey)

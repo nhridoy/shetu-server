@@ -912,3 +912,43 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+func TestOAuthUser_StoresAndRefreshesAvatarURL(t *testing.T) {
+	db := setupTestDB(t)
+	reload := func(id any) models.User {
+		var u models.User
+		if err := db.Where("id = ?", id).First(&u).Error; err != nil {
+			t.Fatalf("reload user: %v", err)
+		}
+		return u
+	}
+
+	ui := &userInfo{Email: "pic@example.com", Name: "Pic User", ProviderSub: "pic-sub", AvatarURL: "https://avatars.example.com/a.png"}
+	user, err := linkOrCreateOAuthUser(db, "github", ui)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if got := reload(user.ID).AvatarURL; got != "https://avatars.example.com/a.png" {
+		t.Errorf("new user avatar = %q", got)
+	}
+
+	// A returning user's picture follows the provider.
+	ui.AvatarURL = "https://avatars.example.com/b.png"
+	if _, err := linkOrCreateOAuthUser(db, "github", ui); err != nil {
+		t.Fatalf("relogin: %v", err)
+	}
+	if got := reload(user.ID).AvatarURL; got != "https://avatars.example.com/b.png" {
+		t.Errorf("refreshed avatar = %q", got)
+	}
+
+	// Anything but an absolute https URL is never stored.
+	for _, bad := range []string{"http://avatars.example.com/c.png", "javascript:alert(1)", "/relative.png"} {
+		ui.AvatarURL = bad
+		if _, err := linkOrCreateOAuthUser(db, "github", ui); err != nil {
+			t.Fatalf("relogin %q: %v", bad, err)
+		}
+		if got := reload(user.ID).AvatarURL; got != "" {
+			t.Errorf("avatar for %q = %q, want empty", bad, got)
+		}
+	}
+}

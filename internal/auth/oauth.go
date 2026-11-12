@@ -274,7 +274,24 @@ func linkOrCreateOAuthUser(db *gorm.DB, provider string, ui *userInfo) (models.U
 			}
 		}
 	}
+	// The picture follows the provider on every sign-in. It is cosmetic, so a
+	// failed update never blocks the login.
+	if avatar := safeAvatarURL(ui.AvatarURL); avatar != user.AvatarURL {
+		if db.Model(&user).Update("avatar_url", avatar).Error == nil {
+			user.AvatarURL = avatar
+		}
+	}
 	return user, nil
+}
+
+// safeAvatarURL keeps only absolute https URLs: the app renders this value as
+// an image source, so other schemes and relative paths are dropped.
+func safeAvatarURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || len(raw) > 2048 {
+		return ""
+	}
+	return raw
 }
 
 func HandleOAuthStart(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {

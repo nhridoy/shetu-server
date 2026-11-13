@@ -460,34 +460,8 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		if user.AuthVerifier == nil {
-			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "no verifier set")
-			return
-		}
-
-		oldProofBytes, err := base64.RawStdEncoding.DecodeString(req.OldProof)
-		if err != nil {
-			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid old proof")
-			return
-		}
-		oldNonceBytes, err := base64.RawStdEncoding.DecodeString(req.OldNonce)
-		if err != nil {
-			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid old nonce")
-			return
-		}
-		if !consumeLoginNonce(db, user.Email, req.OldNonce) {
-			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid old nonce")
-			return
-		}
-		verifierBytes, err := base64.RawStdEncoding.DecodeString(*user.AuthVerifier)
-		if err != nil {
-			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid stored verifier")
-			return
-		}
-
-		expectedProof := GenerateProof(verifierBytes, oldNonceBytes)
-		if !ConstantTimeCompare(oldProofBytes, expectedProof) {
-			Error(c, http.StatusForbidden, "FORBIDDEN", "current password is incorrect")
+		if status, code, msg := verifyPasswordProof(db, &user, req.OldProof, req.OldNonce); status != 0 {
+			Error(c, status, code, msg)
 			return
 		}
 
@@ -524,7 +498,7 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		// Verifier/salts and the re-wrapped keyring must land together: a
 		// partial write would leave the account with a new password whose
 		// vault key is still wrapped with the old KEK (unrecoverable vault).
-		err = db.Transaction(func(tx *gorm.DB) error {
+		err := db.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Save(&user).Error; err != nil {
 				return err
 			}

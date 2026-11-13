@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	gormsqlite "github.com/glebarez/sqlite"
@@ -147,5 +148,80 @@ func TestTeamSyncSnapshotIncludesMemberAvatarURL(t *testing.T) {
 	}
 	if got := members[0].(map[string]any)["avatar_url"]; got != "https://avatars.example.com/p.png" {
 		t.Errorf("member avatar_url = %v", got)
+	}
+}
+
+func TestTeamSyncSnapshotReportsOwnerDeletion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(gormsqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := models.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	owner := uuid.New()
+	if err := db.Create(&models.User{ID: owner, Email: "own@example.com", FullName: "Own"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("user_id", owner); c.Next() })
+	RegisterRoutes(router.Group("/api/v1"), db)
+	teamID := uuid.New()
+	body, _ := json.Marshal(map[string]any{"operations": []any{map[string]any{
+		"operation_id": uuid.New(), "type": "team.create", "payload": map[string]any{"team_id": teamID, "name": "Doomed"},
+	}}})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/teams/sync", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("sync status %d: %s", resp.Code, resp.Body)
+	}
+
+	member := uuid.New()
+	if err := db.Create(&models.User{ID: member, Email: "mem@example.com", FullName: "Mem"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.TeamMember{ID: uuid.New(), TeamID: teamID, UserID: member, Role: "member", State: "active"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	teamEntryFor := func(actor uuid.UUID) map[string]any {
+		snap, _, _, err := teamSyncSnapshot(db, actor, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(snap)
+		var decoded struct {
+			Teams []map[string]any `json:"teams"`
+		}
+		if err := json.Unmarshal(raw, &decoded); err != nil || len(decoded.Teams) != 1 {
+			t.Fatalf("expected 1 team: %v %s", err, raw)
+		}
+		return decoded.Teams[0]
+	}
+	teamEntry := func() map[string]any { return teamEntryFor(owner) }
+
+	when := time.Date(2026, 12, 13, 10, 0, 0, 0, time.UTC)
+	if err := db.Model(&models.User{}).Where("id = ?", owner).Update("deletion_scheduled_for", when).Error; err != nil {
+		t.Fatal(err)
+	}
+	entry := teamEntry()
+	if got := entry["owner_deletion_scheduled_for"]; got != "2026-12-13T10:00:00Z" {
+		t.Errorf("owner_deletion_scheduled_for = %v", got)
+	}
+	if entry["name"] != "Doomed" || entry["owner_id"] != owner.String() {
+		t.Errorf("existing keys changed: %v", entry)
+	}
+	if got := teamEntryFor(member)["owner_deletion_scheduled_for"]; got != "2026-12-13T10:00:00Z" {
+		t.Errorf("member snapshot owner_deletion_scheduled_for = %v", got)
+	}
+
+	if err := db.Model(&models.User{}).Where("id = ?", owner).Update("deletion_scheduled_for", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := teamEntry()["owner_deletion_scheduled_for"]; ok {
+		t.Error("key should be absent once cancelled")
 	}
 }

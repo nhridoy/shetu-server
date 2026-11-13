@@ -157,3 +157,94 @@ func TestTeamVaultRequiresGrantForEveryActiveMember(t *testing.T) {
 		t.Fatalf("owner deleted vault: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// Both team-vault create paths lock the team row (Postgres; SQLite ignores the
+// clause) so they serialize with the account purge, and refuse to create a
+// vault once the team row is gone.
+func TestTeamVaultCreateLocksTeamAndRefusesMissingTeam(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(gormsqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := models.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	owner, teamID := uuid.New(), uuid.New()
+	public := "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+	fingerprint, err := FingerprintPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []any{
+		&models.User{ID: owner, Email: "owner@example.com", FullName: "Owner", PublicKey: &public},
+		&models.Team{ID: teamID, OwnerID: owner, Name: "Ops"},
+		&models.TeamMember{ID: uuid.New(), TeamID: teamID, UserID: owner, Role: "owner", State: "active"},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	teamLocks := 0
+	if err := db.Callback().Query().Before("gorm:query").Register("test:record_team_locks", func(d *gorm.DB) {
+		if _, ok := d.Statement.Clauses["FOR"]; ok && d.Statement.Table == "teams" {
+			teamLocks++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("user_id", owner); c.Next() })
+	RegisterRoutes(router.Group("/api/v1"), db)
+	envelopes := func(vaultID uuid.UUID) []models.VaultKeyEnvelope {
+		return []models.VaultKeyEnvelope{{VaultID: vaultID, TeamID: teamID, Epoch: 1, RecipientUserID: owner, RecipientFingerprint: fingerprint, Version: 1, EphemeralPublicKey: public, Nonce: "nonce", Ciphertext: "ciphertext"}}
+	}
+	post := func(vaultID uuid.UUID) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]any{"id": vaultID, "name": "Shared", "envelopes": envelopes(vaultID)})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/teams/"+teamID.String()+"/vaults", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+	syncCreate := func(vaultID uuid.UUID) teamSyncResult {
+		payload, _ := json.Marshal(map[string]any{"vault_id": vaultID, "team_id": teamID, "name": "Synced", "envelopes": envelopes(vaultID)})
+		result, err := applyTeamSyncOperation(db, owner, teamSyncOperation{OperationID: uuid.New(), Type: "vault.create", Payload: payload})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	vaultCount := func() (n int64) {
+		db.Model(&models.Vault{}).Count(&n)
+		return n
+	}
+
+	if rec := post(uuid.New()); rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if teamLocks != 1 {
+		t.Fatalf("HTTP create locked the team %d times, want 1", teamLocks)
+	}
+	if result := syncCreate(uuid.New()); result.Status != "accepted" {
+		t.Fatalf("sync create: %+v", result)
+	}
+	if teamLocks != 2 {
+		t.Fatalf("sync create locked the team %d times in total, want 2", teamLocks)
+	}
+
+	// The purge deleted the team after the role check passed.
+	if err := db.Where("id = ?", teamID).Delete(&models.Team{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := vaultCount()
+	if rec := post(uuid.New()); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "TEAM_NOT_FOUND") {
+		t.Fatalf("create in a deleted team: %d %s", rec.Code, rec.Body.String())
+	}
+	if result := syncCreate(uuid.New()); result.Status != "rejected" || result.ErrorCode == nil || *result.ErrorCode != "TEAM_NOT_FOUND" {
+		t.Fatalf("sync create in a deleted team: %+v", result)
+	}
+	if vaultCount() != before {
+		t.Fatal("vault created for a deleted team")
+	}
+}

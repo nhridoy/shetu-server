@@ -13,9 +13,17 @@ import (
 	"github.com/nhridoy/shetu-server/internal/models"
 	teamsync "github.com/nhridoy/shetu-server/internal/sync"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var errInvalidGrantSet = errors.New("invalid grant set")
+var errTeamNotFound = errors.New("team not found")
+
+// lockTeam is taken on the team row before a team vault is inserted. The
+// account purge locks the owner's teams FOR UPDATE, so the two serialize: the
+// purge sees the new vault, or the create finds the team gone (Postgres;
+// SQLite ignores it).
+var lockTeam = clause.Locking{Strength: "SHARE"}
 
 type createVaultRequest struct {
 	ID        uuid.UUID                 `json:"id"`
@@ -52,7 +60,9 @@ func registerVaultRoutes(protected *gin.RouterGroup, db *gorm.DB) {
 		var created models.Vault
 		err = db.Transaction(func(tx *gorm.DB) error {
 			var team models.Team
-			if err := tx.Where("id = ? AND deleted_at IS NULL", teamID).Take(&team).Error; err != nil {
+			if err := tx.Clauses(lockTeam).Where("id = ? AND deleted_at IS NULL", teamID).Take(&team).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				return errTeamNotFound
+			} else if err != nil {
 				return err
 			}
 			var members []models.TeamMember
@@ -104,6 +114,10 @@ func registerVaultRoutes(protected *gin.RouterGroup, db *gorm.DB) {
 		if err != nil {
 			if errors.Is(err, errInvalidGrantSet) {
 				auth.Error(c, http.StatusBadRequest, "INVALID_GRANTS", "one valid key grant per member is required")
+				return
+			}
+			if errors.Is(err, errTeamNotFound) {
+				auth.Error(c, http.StatusNotFound, "TEAM_NOT_FOUND", "team not found")
 				return
 			}
 			auth.Error(c, http.StatusInternalServerError, "VAULT_CREATE_FAILED", "could not create team vault")

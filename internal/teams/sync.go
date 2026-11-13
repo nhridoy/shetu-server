@@ -258,11 +258,8 @@ func applyTeamSyncMutation(tx *gorm.DB, actor uuid.UUID, operation teamSyncOpera
 			if !allowed || member.Role == "owner" {
 				return "cannot remove this team member", "FORBIDDEN"
 			}
-			if err := tx.Model(&member).Updates(map[string]any{"state": "removed", "updated_at": now}).Error; err != nil {
+			if err := RemoveMemberTx(tx, teamID, userID, now); err != nil {
 				return "could not remove member", "INTERNAL_ERROR"
-			}
-			if err := tx.Model(&models.Vault{}).Where("team_id = ? AND deleted_at IS NULL", teamID).Updates(map[string]any{"rotation_state": "rotation_required", "revision": gorm.Expr("revision + 1"), "updated_at": now}).Error; err != nil {
-				return "could not revoke shared vault access", "INTERNAL_ERROR"
 			}
 		}
 	case "vault.rename", "vault.delete":
@@ -319,7 +316,7 @@ func applyTeamSyncMutation(tx *gorm.DB, actor uuid.UUID, operation teamSyncOpera
 			return "team management required", "FORBIDDEN"
 		}
 		var team models.Team
-		if err := tx.Where("id = ? AND deleted_at IS NULL", teamID).Take(&team).Error; err != nil {
+		if err := tx.Clauses(lockTeam).Where("id = ? AND deleted_at IS NULL", teamID).Take(&team).Error; err != nil {
 			return "team not found", "TEAM_NOT_FOUND"
 		}
 		var members []models.TeamMember
@@ -605,6 +602,12 @@ func applyTeamVaultRotation(tx *gorm.DB, actor uuid.UUID, operation teamSyncOper
 	return "", ""
 }
 
+// teamWire is a team plus a warning when its owner is deleting their account.
+type teamWire struct {
+	models.Team
+	OwnerDeletionScheduledFor string `json:"owner_deletion_scheduled_for,omitempty"`
+}
+
 func teamSyncSnapshot(db *gorm.DB, actor uuid.UUID, cursor *uuid.UUID) (map[string]any, uuid.UUID, bool, error) {
 	var memberships []models.TeamMember
 	if err := db.Where("user_id = ? AND state = ?", actor, "active").Find(&memberships).Error; err != nil {
@@ -615,7 +618,7 @@ func teamSyncSnapshot(db *gorm.DB, actor uuid.UUID, cursor *uuid.UUID) (map[stri
 		teamIDs = append(teamIDs, member.TeamID)
 	}
 	allTeamIDs := append([]uuid.UUID(nil), teamIDs...)
-	teams := make([]models.Team, 0)
+	teams := make([]teamWire, 0)
 	members := make([]map[string]any, 0)
 	vaults := make([]models.Vault, 0)
 	nextCursor := uuid.Nil
@@ -634,10 +637,24 @@ func teamSyncSnapshot(db *gorm.DB, actor uuid.UUID, cursor *uuid.UUID) (map[stri
 			page = page[:100]
 			nextCursor = page[len(page)-1].ID
 		}
-		teams = page
-		pageIDs := make([]uuid.UUID, 0, len(teams))
-		for _, team := range teams {
+		pageIDs := make([]uuid.UUID, 0, len(page))
+		ownerIDs := make([]uuid.UUID, 0, len(page))
+		for _, team := range page {
 			pageIDs = append(pageIDs, team.ID)
+			ownerIDs = append(ownerIDs, team.OwnerID)
+		}
+		scheduled := map[uuid.UUID]string{}
+		if len(ownerIDs) > 0 {
+			var owners []models.User
+			if err := db.Select("id", "deletion_scheduled_for").Where("id IN ? AND deletion_scheduled_for IS NOT NULL", ownerIDs).Find(&owners).Error; err != nil {
+				return nil, uuid.Nil, false, err
+			}
+			for _, owner := range owners {
+				scheduled[owner.ID] = owner.DeletionScheduledFor.UTC().Format(time.RFC3339)
+			}
+		}
+		for _, team := range page {
+			teams = append(teams, teamWire{Team: team, OwnerDeletionScheduledFor: scheduled[team.OwnerID]})
 		}
 		if len(pageIDs) == 0 {
 			teamIDs = nil

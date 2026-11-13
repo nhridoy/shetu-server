@@ -45,13 +45,17 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	auth.POST("/logout", HandleLogout(db))
 	auth.POST("/recovery", HandleRecovery(db, cfg))
 	auth.POST("/recovery/prefetch", HandleRecoveryPrefetch(db))
+	auth.POST("/account-status", HandleAccountStatus(db))
 
 	protected := r.Group("/api/v1")
-	protected.Use(JWTMiddleware(cfg))
+	protected.Use(JWTMiddleware(cfg), DeletionGate(db))
+	protected.GET("/test-protected", func(c *gin.Context) { c.Status(http.StatusOK) })
 	protected.GET("/me", HandleMe(db))
 	protected.GET("/auth/keyring", HandleKeyring(db))
 	protected.POST("/auth/password-change", HandlePasswordChange(db, cfg))
 	protected.POST("/auth/recovery-material", HandleAttachRecoveryMaterial(db, cfg))
+	protected.POST("/me/deletion", HandleRequestDeletion(db, cfg))
+	protected.DELETE("/me/deletion", HandleCancelDeletion(db))
 	return r
 }
 
@@ -1754,6 +1758,60 @@ func TestPasswordChange_KeyringFailure_RollsBackUserUpdate(t *testing.T) {
 	db.Where("user_id = ? AND key_type = ?", uid, "dek_wrapped_by_kek").First(&uk)
 	if uk.Payload != "wrapped-old" {
 		t.Fatalf("keyring payload must be rolled back, got %q", uk.Payload)
+	}
+}
+
+// A deletion scheduled between the handler loading the user and writing the
+// new verifier must survive: the write touches only the password columns.
+func TestPasswordChange_KeepsConcurrentDeletionDate(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := testConfig()
+	r := setupHandlerRouter(db, cfg)
+
+	uid, verifier := seedUserWithVerifier(t, db, "pwchange-race@example.com")
+	token := makeAccessToken(uid, cfg)
+	scheduled := time.Now().UTC().Truncate(time.Second).Add(30 * 24 * time.Hour)
+	fired := false
+	// The gate reads into a slice; this fires after the handler's single-row load.
+	if err := db.Callback().Query().After("gorm:query").Register("test:concurrent_schedule", func(d *gorm.DB) {
+		if _, single := d.Statement.Dest.(*models.User); fired || !single || d.Statement.Table != "users" {
+			return
+		}
+		fired = true
+		if err := d.Session(&gorm.Session{NewDB: true}).Exec("UPDATE users SET deletion_scheduled_for = ? WHERE id = ?", scheduled, uid).Error; err != nil {
+			t.Error(err)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	nonce := []byte("race-nonce")
+	seedLoginNonce(t, db, "pwchange-race@example.com", base64.RawStdEncoding.EncodeToString(nonce))
+	body, _ := json.Marshal(gin.H{
+		"old_proof":    base64.RawStdEncoding.EncodeToString(GenerateProof(verifier, nonce)),
+		"old_nonce":    base64.RawStdEncoding.EncodeToString(nonce),
+		"new_verifier": "new-verifier-value",
+		"new_kdf":      gin.H{"m": 134217728, "t": 4, "p": 2},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password-change", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if !fired {
+		t.Fatal("concurrent schedule was not injected")
+	}
+	var user models.User
+	db.Where("id = ?", uid).First(&user)
+	if user.DeletionScheduledFor == nil || !user.DeletionScheduledFor.Equal(scheduled) {
+		t.Fatalf("deletion date = %v, want %v kept", user.DeletionScheduledFor, scheduled)
+	}
+	if user.AuthVerifier == nil || *user.AuthVerifier != "new-verifier-value" || user.KDFM != 134217728 || user.KDFT != 4 || user.KDFP != 2 {
+		t.Fatalf("password columns not written: verifier=%v kdf=%d/%d/%d", user.AuthVerifier, user.KDFM, user.KDFT, user.KDFP)
 	}
 }
 

@@ -279,7 +279,9 @@ func linkOrCreateOAuthUser(db *gorm.DB, provider string, ui *userInfo) (models.U
 	// failed or slow update never blocks the login.
 	if avatar := safeAvatarURL(ui.AvatarURL); avatar != user.AvatarURL {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		if db.WithContext(ctx).Model(&user).Update("avatar_url", avatar).Error == nil {
+		// Update by ID, not via &user: GORM writes the value into the model
+		// before the SQL runs, so a failed write would leave it set anyway.
+		if db.WithContext(ctx).Model(&models.User{}).Where("id = ?", user.ID).Update("avatar_url", avatar).Error == nil {
 			user.AvatarURL = avatar
 		}
 		cancel()

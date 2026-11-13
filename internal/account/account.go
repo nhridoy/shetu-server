@@ -37,3 +37,34 @@ func Schedule(db *gorm.DB, userID uuid.UUID, now time.Time) (time.Time, error) {
 func Cancel(db *gorm.DB, userID uuid.UUID) error {
 	return db.Model(&models.User{}).Where("id = ?", userID).Update("deletion_scheduled_for", nil).Error
 }
+
+type Status string
+
+const (
+	StatusActive    Status = "active"
+	StatusScheduled Status = "deletion_scheduled"
+	StatusDeleted   Status = "deleted"
+)
+
+// GetStatus reads the user's row first and consults deleted_accounts only
+// when it is missing. Unknown IDs count as active.
+func GetStatus(db *gorm.DB, userID uuid.UUID) (Status, *time.Time, error) {
+	var users []models.User
+	if err := db.Select("deletion_scheduled_for").Where("id = ?", userID).Limit(1).Find(&users).Error; err != nil {
+		return "", nil, err
+	}
+	if len(users) == 1 {
+		if at := users[0].DeletionScheduledFor; at != nil {
+			return StatusScheduled, at, nil
+		}
+		return StatusActive, nil, nil
+	}
+	var n int64
+	if err := db.Model(&models.DeletedAccount{}).Where("user_id = ?", userID).Count(&n).Error; err != nil {
+		return "", nil, err
+	}
+	if n > 0 {
+		return StatusDeleted, nil, nil
+	}
+	return StatusActive, nil, nil
+}

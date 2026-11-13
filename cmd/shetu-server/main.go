@@ -58,6 +58,7 @@ func main() {
 	apiAuth.POST("/login", auth.RateLimit(cfg.RateLimitAuth), auth.HandleLogin(db, cfg))
 	apiAuth.POST("/refresh", auth.RateLimit(cfg.RateLimitAuth), auth.HandleRefresh(db, cfg))
 	apiAuth.POST("/logout", auth.RateLimit(cfg.RateLimitAuth), auth.HandleLogout(db))
+	apiAuth.POST("/account-status", auth.RateLimit(cfg.RateLimitAuth), auth.HandleAccountStatus(db))
 	apiAuth.POST("/recovery", auth.RateLimit(cfg.RateLimitAuth), auth.HandleRecovery(db, cfg))
 	apiAuth.POST("/recovery/prefetch", auth.RateLimit(cfg.RateLimitAuth), auth.HandleRecoveryPrefetch(db))
 	apiAuth.POST("/verify-email", auth.RateLimit(cfg.RateLimitAuth), auth.HandleVerifyEmail(db, cfg))
@@ -68,7 +69,7 @@ func main() {
 	apiAuth.POST("/oauth/setup", auth.RateLimit(cfg.RateLimitAuth), auth.HandleOAuthSetup(db, cfg))
 
 	protected := r.Group("/api/v1")
-	protected.Use(auth.RateLimit(cfg.RateLimitAPI), auth.JWTMiddleware(cfg))
+	protected.Use(auth.RateLimit(cfg.RateLimitAPI), auth.JWTMiddleware(cfg), auth.DeletionGate(db))
 	protected.GET("/me", auth.HandleMe(db))
 	protected.GET("/vaults/default", auth.HandleDefaultVault(db))
 	protected.GET("/auth/keyring", auth.HandleKeyring(db))

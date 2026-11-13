@@ -125,7 +125,8 @@ func TestScheduleRejectsReusedNonce(t *testing.T) {
 	postDeletion(t, r, db, "del@example.com", uid, v, tok, "del@example.com", []byte("n1"), true, false)
 	first := scheduledFor(db, uid)
 	w := postDeletion(t, r, db, "del@example.com", uid, v, tok, "del@example.com", []byte("n1"), false, false)
-	if w.Code != http.StatusUnauthorized {
+	// The gate now stops a second request from a scheduled account before the nonce is checked.
+	if w.Code != http.StatusForbidden {
 		t.Fatalf("got %d: %s", w.Code, w.Body.String())
 	}
 	if got := scheduledFor(db, uid); got == nil || !got.Equal(*first) {

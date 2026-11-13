@@ -76,3 +76,22 @@ func TestCancelClearsDate(t *testing.T) {
 		t.Fatalf("date not cleared: %v", u.DeletionScheduledFor)
 	}
 }
+
+func TestGetStatus(t *testing.T) {
+	db, id := testDB(t)
+	if s, at, err := GetStatus(db, id); err != nil || s != StatusActive || at != nil {
+		t.Fatalf("active: %v %v %v", s, at, err)
+	}
+	when, _ := Schedule(db, id, time.Now())
+	if s, at, err := GetStatus(db, id); err != nil || s != StatusScheduled || at == nil || !at.Equal(when) {
+		t.Fatalf("scheduled: %v %v %v", s, at, err)
+	}
+	gone := uuid.New()
+	db.Create(&models.DeletedAccount{UserID: gone, DeletedAt: time.Now()})
+	if s, _, err := GetStatus(db, gone); err != nil || s != StatusDeleted {
+		t.Fatalf("deleted: %v %v", s, err)
+	}
+	if s, _, err := GetStatus(db, uuid.New()); err != nil || s != StatusActive {
+		t.Fatalf("unknown: %v %v", s, err)
+	}
+}

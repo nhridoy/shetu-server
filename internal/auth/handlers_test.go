@@ -45,9 +45,11 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	auth.POST("/logout", HandleLogout(db))
 	auth.POST("/recovery", HandleRecovery(db, cfg))
 	auth.POST("/recovery/prefetch", HandleRecoveryPrefetch(db))
+	auth.POST("/account-status", HandleAccountStatus(db))
 
 	protected := r.Group("/api/v1")
-	protected.Use(JWTMiddleware(cfg))
+	protected.Use(JWTMiddleware(cfg), DeletionGate(db))
+	protected.GET("/test-protected", func(c *gin.Context) { c.Status(http.StatusOK) })
 	protected.GET("/me", HandleMe(db))
 	protected.GET("/auth/keyring", HandleKeyring(db))
 	protected.POST("/auth/password-change", HandlePasswordChange(db, cfg))

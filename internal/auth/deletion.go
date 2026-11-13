@@ -76,3 +76,29 @@ func HandleCancelDeletion(db *gorm.DB) gin.HandlerFunc {
 		c.Status(http.StatusNoContent)
 	}
 }
+
+func HandleAccountStatus(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			UserID string `json:"user_id"`
+		}
+		id, err := uuid.Parse("")
+		if c.ShouldBindJSON(&req) == nil {
+			id, err = uuid.Parse(req.UserID)
+		}
+		if err != nil {
+			Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "invalid user_id")
+			return
+		}
+		status, at, err := account.GetStatus(db, id)
+		if err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to read account status")
+			return
+		}
+		data := gin.H{"status": status}
+		if at != nil {
+			data["deletion_scheduled_for"] = at.UTC().Format(time.RFC3339)
+		}
+		Success(c, http.StatusOK, data)
+	}
+}

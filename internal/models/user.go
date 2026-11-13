@@ -10,6 +10,7 @@ type User struct {
 	ID              uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
 	Email           string     `gorm:"uniqueIndex:idx_users_email;not null" json:"email"`
 	FullName        string     `gorm:"not null" json:"full_name"`
+	AvatarURL       string     `gorm:"not null;default:''" json:"avatar_url,omitempty"`
 	AuthProvider    string     `gorm:"not null;default:'password'" json:"auth_provider"`
 	ProviderSub     *string    `gorm:"uniqueIndex:idx_users_auth_provider_provider_sub" json:"provider_sub,omitempty"`
 	AuthVerifier    *string    `json:"-"`

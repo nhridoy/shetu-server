@@ -258,11 +258,8 @@ func applyTeamSyncMutation(tx *gorm.DB, actor uuid.UUID, operation teamSyncOpera
 			if !allowed || member.Role == "owner" {
 				return "cannot remove this team member", "FORBIDDEN"
 			}
-			if err := tx.Model(&member).Updates(map[string]any{"state": "removed", "updated_at": now}).Error; err != nil {
+			if err := RemoveMemberTx(tx, teamID, userID, now); err != nil {
 				return "could not remove member", "INTERNAL_ERROR"
-			}
-			if err := tx.Model(&models.Vault{}).Where("team_id = ? AND deleted_at IS NULL", teamID).Updates(map[string]any{"rotation_state": "rotation_required", "revision": gorm.Expr("revision + 1"), "updated_at": now}).Error; err != nil {
-				return "could not revoke shared vault access", "INTERNAL_ERROR"
 			}
 		}
 	case "vault.rename", "vault.delete":

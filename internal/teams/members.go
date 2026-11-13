@@ -113,11 +113,7 @@ func registerMemberRoutes(protected *gin.RouterGroup, db *gorm.DB) {
 					return errMemberPermission
 				}
 				now := models.CanonicalUTCMillis(time.Now())
-				if err := tx.Model(&member).Updates(map[string]any{"state": "removed", "updated_at": now}).Error; err != nil {
-					return err
-				}
-				return tx.Model(&models.Vault{}).Where("team_id = ? AND deleted_at IS NULL", teamID).
-					Updates(map[string]any{"rotation_state": "rotation_required", "revision": gorm.Expr("revision + 1"), "updated_at": now}).Error
+				return RemoveMemberTx(tx, teamID, targetID, now)
 			})
 		})
 		if err != nil {

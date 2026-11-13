@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -275,11 +276,13 @@ func linkOrCreateOAuthUser(db *gorm.DB, provider string, ui *userInfo) (models.U
 		}
 	}
 	// The picture follows the provider on every sign-in. It is cosmetic, so a
-	// failed update never blocks the login.
+	// failed or slow update never blocks the login.
 	if avatar := safeAvatarURL(ui.AvatarURL); avatar != user.AvatarURL {
-		if db.Model(&user).Update("avatar_url", avatar).Error == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if db.WithContext(ctx).Model(&user).Update("avatar_url", avatar).Error == nil {
 			user.AvatarURL = avatar
 		}
+		cancel()
 	}
 	return user, nil
 }

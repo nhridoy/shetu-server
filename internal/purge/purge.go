@@ -56,7 +56,8 @@ func PurgeDue(db *gorm.DB, now time.Time) (int, error) {
 }
 
 // forUpdate row-locks what it reads (Postgres; SQLite ignores it), so a
-// concurrent Cancel or vault push waits for the purge and then sees its result.
+// concurrent Cancel, vault push or team-vault create waits for the purge and
+// then sees its result.
 var forUpdate = clause.Locking{Strength: "UPDATE"}
 
 // purgeUser deletes the user and everything that references them. It returns
@@ -73,7 +74,7 @@ func purgeUser(tx *gorm.DB, userID uuid.UUID, now time.Time) (bool, error) {
 
 	// 1. Teams the user owns, with their vaults.
 	var ownedTeams []uuid.UUID
-	if err := tx.Model(&models.Team{}).Where("owner_id = ?", userID).Pluck("id", &ownedTeams).Error; err != nil {
+	if err := tx.Model(&models.Team{}).Clauses(forUpdate).Where("owner_id = ?", userID).Pluck("id", &ownedTeams).Error; err != nil {
 		return false, err
 	}
 	if len(ownedTeams) > 0 {

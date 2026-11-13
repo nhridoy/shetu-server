@@ -316,7 +316,7 @@ func applyTeamSyncMutation(tx *gorm.DB, actor uuid.UUID, operation teamSyncOpera
 			return "team management required", "FORBIDDEN"
 		}
 		var team models.Team
-		if err := tx.Where("id = ? AND deleted_at IS NULL", teamID).Take(&team).Error; err != nil {
+		if err := tx.Clauses(lockTeam).Where("id = ? AND deleted_at IS NULL", teamID).Take(&team).Error; err != nil {
 			return "team not found", "TEAM_NOT_FOUND"
 		}
 		var members []models.TeamMember

@@ -408,6 +408,9 @@ func TestPurgeLocksUserAndVaultRows(t *testing.T) {
 	if locked["users"] != 1 {
 		t.Errorf("user re-check locked %d times, want 1", locked["users"])
 	}
+	if locked["teams"] != 1 {
+		t.Errorf("owned-team read locked %d times, want 1", locked["teams"])
+	}
 	if locked["vaults"] != 2 {
 		t.Errorf("vault id reads locked %d times, want 2 (owned-team and personal)", locked["vaults"])
 	}

@@ -123,14 +123,32 @@ func TestScheduleRejectsReusedNonce(t *testing.T) {
 	uid, v := seedUserWithVerifier(t, db, "del@example.com")
 	tok := makeAccessToken(uid, cfg)
 	postDeletion(t, r, db, "del@example.com", uid, v, tok, "del@example.com", []byte("n1"), true, false)
-	first := scheduledFor(db, uid)
+	// Cancel so the gate lets the replay reach the handler.
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/me/deletion", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	r.ServeHTTP(httptest.NewRecorder(), req)
+	if scheduledFor(db, uid) != nil {
+		t.Fatal("cancel did not clear the date")
+	}
 	w := postDeletion(t, r, db, "del@example.com", uid, v, tok, "del@example.com", []byte("n1"), false, false)
-	// The gate now stops a second request from a scheduled account before the nonce is checked.
-	if w.Code != http.StatusForbidden {
+	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("got %d: %s", w.Code, w.Body.String())
 	}
-	if got := scheduledFor(db, uid); got == nil || !got.Equal(*first) {
-		t.Fatal("date changed")
+	if scheduledFor(db, uid) != nil {
+		t.Fatal("replayed nonce scheduled the deletion")
+	}
+}
+
+func TestScheduledAccountCannotRerequestDeletion(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := testConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, v := seedUserWithVerifier(t, db, "del@example.com")
+	tok := makeAccessToken(uid, cfg)
+	postDeletion(t, r, db, "del@example.com", uid, v, tok, "del@example.com", []byte("n1"), true, false)
+	w := postDeletion(t, r, db, "del@example.com", uid, v, tok, "del@example.com", []byte("n2"), true, false)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
 	}
 }
 

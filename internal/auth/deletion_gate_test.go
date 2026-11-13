@@ -61,6 +61,13 @@ func TestGateAllowsMeAndCancel(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("cancel: %d %s", w.Code, w.Body.String())
 	}
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/test-protected", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("after cancel: %d %s", w.Code, w.Body.String())
+	}
 }
 
 func TestGateOnlyBlocksTheScheduledUser(t *testing.T) {

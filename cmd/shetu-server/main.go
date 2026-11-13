@@ -73,6 +73,8 @@ func main() {
 	protected.GET("/vaults/default", auth.HandleDefaultVault(db))
 	protected.GET("/auth/keyring", auth.HandleKeyring(db))
 	protected.POST("/auth/password-change", auth.HandlePasswordChange(db, cfg))
+	protected.POST("/me/deletion", auth.HandleRequestDeletion(db, cfg))
+	protected.DELETE("/me/deletion", auth.HandleCancelDeletion(db))
 	protected.POST("/auth/recovery-material", auth.RateLimit(cfg.RateLimitAuth), auth.HandleAttachRecoveryMaterial(db, cfg))
 	protected.POST("/sync/push", syncapi.HandlePush(db))
 	protected.POST("/sync/pull", syncapi.HandlePull(db))

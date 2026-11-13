@@ -52,6 +52,8 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	protected.GET("/auth/keyring", HandleKeyring(db))
 	protected.POST("/auth/password-change", HandlePasswordChange(db, cfg))
 	protected.POST("/auth/recovery-material", HandleAttachRecoveryMaterial(db, cfg))
+	protected.POST("/me/deletion", HandleRequestDeletion(db, cfg))
+	protected.DELETE("/me/deletion", HandleCancelDeletion(db))
 	return r
 }
 

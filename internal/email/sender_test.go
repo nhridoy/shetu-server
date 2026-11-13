@@ -1,6 +1,9 @@
 package email
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSendOtp_DisabledWithoutFallback_Errors(t *testing.T) {
 	s := New("", 587, "", "", "", false)
@@ -29,5 +32,12 @@ func TestNew_DefaultPort(t *testing.T) {
 	}
 	if s.Port != 587 || s.Username != "u" || s.From != "no-reply@example.com" || s.LogOtpFallback {
 		t.Fatalf("sender fields not preserved: %+v", s)
+	}
+}
+
+func TestSendAccountDeletionNotice_DisabledReturnsError(t *testing.T) {
+	s := New("", 587, "", "", "", false)
+	if err := s.SendAccountDeletionNotice("user@example.com", time.Now()); err == nil {
+		t.Fatal("disabled sender must return an error")
 	}
 }

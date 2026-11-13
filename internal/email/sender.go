@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/smtp"
+	"time"
 )
 
 type Sender struct {
@@ -39,6 +40,11 @@ func (s *Sender) SendOtp(to, code string) error {
 		return nil
 	}
 
+	return s.send(to, subject, html)
+}
+
+// send delivers an HTML message over SMTP.
+func (s *Sender) send(to, subject, html string) error {
 	msg := []byte("From: " + s.From + "\r\n" +
 		"To: " + to + "\r\n" +
 		"Subject: " + subject + "\r\n" +
@@ -53,7 +59,15 @@ func (s *Sender) SendOtp(to, code string) error {
 		auth = smtp.PlainAuth("", s.Username, s.Password, s.Host)
 	}
 	if err := smtp.SendMail(addr, auth, s.From, []string{to}, msg); err != nil {
-		return fmt.Errorf("send verification email: %w", err)
+		return fmt.Errorf("send email: %w", err)
 	}
 	return nil
+}
+
+func (s *Sender) SendAccountDeletionNotice(to string, on time.Time) error {
+	if !s.Enabled() {
+		return fmt.Errorf("email delivery is not configured (SMTP_HOST unset)")
+	}
+	html := fmt.Sprintf("<p>Your Shetu account is scheduled for deletion on %s.</p><p>Sign in to Shetu before then to keep your account.</p>", on.Format("2 January 2006"))
+	return s.send(to, "Your Shetu account will be deleted", html)
 }

@@ -479,27 +479,22 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		if req.NewSaltCL != "" {
 			updates["salt_cl"] = req.NewSaltCL
 		}
-		user.AuthVerifier = &req.NewVerifier
-		if req.NewServerSalt != "" {
-			user.AuthSalt = &req.NewServerSalt
-		}
-		if req.NewSaltCL != "" {
-			user.SaltCL = &req.NewSaltCL
-		}
 		if req.NewKDF.M != 0 {
-			user.KDFM = req.NewKDF.M
+			updates["kdfm"] = req.NewKDF.M
 		}
 		if req.NewKDF.T != 0 {
-			user.KDFT = req.NewKDF.T
+			updates["kdft"] = req.NewKDF.T
 		}
 		if req.NewKDF.P != 0 {
-			user.KDFP = req.NewKDF.P
+			updates["kdfp"] = req.NewKDF.P
 		}
 		// Verifier/salts and the re-wrapped keyring must land together: a
 		// partial write would leave the account with a new password whose
 		// vault key is still wrapped with the old KEK (unrecoverable vault).
 		err := db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Save(&user).Error; err != nil {
+			// Only these columns: saving the whole row read earlier would undo a
+			// deletion scheduled meanwhile.
+			if err := tx.Model(&models.User{}).Where("id = ?", user.ID).Updates(updates).Error; err != nil {
 				return err
 			}
 			if req.NewEncryptedDEK != "" {

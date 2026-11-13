@@ -321,3 +321,94 @@ func TestRunPurgeLoopRunsImmediately(t *testing.T) {
 		t.Fatal("RunPurgeLoop did not return after cancel")
 	}
 }
+
+func TestPurgeSkipsUserCancelledBeforeTransaction(t *testing.T) {
+	db := openDB(t)
+	s := seedRichUser(t, db, due)
+	// Cancelled after PurgeDue picked the user but before purgeUser re-read it.
+	if err := db.Model(&models.User{}).Where("id = ?", s.user).Update("deletion_scheduled_for", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := tableCounts(t, db)
+
+	var done bool
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var err error
+		done, err = purgeUser(tx, s.user, due.Add(time.Second))
+		return err
+	})
+	if err != nil || done {
+		t.Fatalf("purgeUser = %v, %v; want false, nil", done, err)
+	}
+	after := tableCounts(t, db)
+	for table, c := range before {
+		if after[table] != c {
+			t.Errorf("%s: %d rows before, %d after", table, c, after[table])
+		}
+	}
+}
+
+func TestPurgeOnlyDueUsersInMixedRun(t *testing.T) {
+	db := openDB(t)
+	s := seedRichUser(t, db, due)
+	future := uuid.New()
+	futureVault := uuid.New()
+	later := due.Add(24 * time.Hour)
+	create(t, db,
+		&models.User{ID: future, Email: "later@example.com", FullName: "Later", DeletionScheduledFor: &later},
+		&models.Vault{ID: futureVault, OwnerID: future, Kind: "personal", Name: "later", IsDefault: true},
+	)
+	seedVaultRows(t, db, futureVault)
+
+	n, err := PurgeDue(db, due.Add(time.Second))
+	if err != nil || n != 1 {
+		t.Fatalf("PurgeDue = %d, %v; want 1, nil", n, err)
+	}
+	if count(t, db, "deleted_accounts", "user_id = ?", s.user) != 1 {
+		t.Error("due user was not purged")
+	}
+	if count(t, db, "deleted_accounts", "user_id = ?", future) != 0 {
+		t.Error("future user was purged")
+	}
+	if count(t, db, "users", "id = ? AND deletion_scheduled_for IS NOT NULL", future) != 1 {
+		t.Error("future user row or date was touched")
+	}
+	if count(t, db, "users", "id = ?", s.otherMember) != 1 {
+		t.Error("member of the purged user's team was deleted")
+	}
+	if count(t, db, "vaults", "id = ?", futureVault) != 1 {
+		t.Error("future user's vault was deleted")
+	}
+	for _, table := range vaultTables {
+		if table == "vault_key_envelopes" {
+			continue
+		}
+		if count(t, db, table, "vault_id = ?", futureVault) != 1 {
+			t.Errorf("%s: future user's vault row was deleted", table)
+		}
+	}
+}
+
+// Postgres serialises the purge against a concurrent Cancel or push only if
+// these reads take row locks; SQLite drops the clause, so inspect the statement.
+func TestPurgeLocksUserAndVaultRows(t *testing.T) {
+	db := openDB(t)
+	seedRichUser(t, db, due)
+	locked := map[string]int{}
+	if err := db.Callback().Query().Before("gorm:query").Register("test:record_locks", func(d *gorm.DB) {
+		if _, ok := d.Statement.Clauses["FOR"]; ok {
+			locked[d.Statement.Table]++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := PurgeDue(db, due.Add(time.Second)); err != nil || n != 1 {
+		t.Fatalf("PurgeDue = %d, %v; want 1, nil", n, err)
+	}
+	if locked["users"] != 1 {
+		t.Errorf("user re-check locked %d times, want 1", locked["users"])
+	}
+	if locked["vaults"] != 2 {
+		t.Errorf("vault id reads locked %d times, want 2 (owned-team and personal)", locked["vaults"])
+	}
+}

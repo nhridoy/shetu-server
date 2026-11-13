@@ -2,6 +2,7 @@
 package account
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,9 +34,21 @@ func Schedule(db *gorm.DB, userID uuid.UUID, now time.Time) (time.Time, error) {
 	return at, err
 }
 
-// Cancel clears the scheduled deletion date.
+// ErrAccountDeleted means the account was purged before the operation ran.
+var ErrAccountDeleted = errors.New("account deleted")
+
+// Cancel clears the scheduled deletion date. It returns ErrAccountDeleted
+// when the user row is gone, so a cancel that lost the race to the purge is
+// never reported as a success.
 func Cancel(db *gorm.DB, userID uuid.UUID) error {
-	return db.Model(&models.User{}).Where("id = ?", userID).Update("deletion_scheduled_for", nil).Error
+	res := db.Model(&models.User{}).Where("id = ?", userID).Update("deletion_scheduled_for", nil)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrAccountDeleted
+	}
+	return nil
 }
 
 type Status string

@@ -12,6 +12,7 @@ import (
 	teamsync "github.com/nhridoy/shetu-server/internal/sync"
 	"github.com/nhridoy/shetu-server/internal/teams"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // vaultScoped are the tables whose rows belong to a vault (vault_id column).
@@ -54,11 +55,15 @@ func PurgeDue(db *gorm.DB, now time.Time) (int, error) {
 	return purged, errors.Join(errs...)
 }
 
+// forUpdate row-locks what it reads (Postgres; SQLite ignores it), so a
+// concurrent Cancel or vault push waits for the purge and then sees its result.
+var forUpdate = clause.Locking{Strength: "UPDATE"}
+
 // purgeUser deletes the user and everything that references them. It returns
 // false when the user is gone or no longer due (deletion cancelled meanwhile).
 func purgeUser(tx *gorm.DB, userID uuid.UUID, now time.Time) (bool, error) {
 	var users []models.User
-	if err := tx.Select("id", "email", "deletion_scheduled_for").Where("id = ?", userID).Limit(1).Find(&users).Error; err != nil {
+	if err := tx.Clauses(forUpdate).Select("id", "email", "deletion_scheduled_for").Where("id = ?", userID).Limit(1).Find(&users).Error; err != nil {
 		return false, err
 	}
 	if len(users) == 0 || users[0].DeletionScheduledFor == nil || users[0].DeletionScheduledFor.After(now) {
@@ -73,7 +78,7 @@ func purgeUser(tx *gorm.DB, userID uuid.UUID, now time.Time) (bool, error) {
 	}
 	if len(ownedTeams) > 0 {
 		var teamVaults []uuid.UUID
-		if err := tx.Model(&models.Vault{}).Where("team_id IN ?", ownedTeams).Pluck("id", &teamVaults).Error; err != nil {
+		if err := tx.Model(&models.Vault{}).Clauses(forUpdate).Where("team_id IN ?", ownedTeams).Pluck("id", &teamVaults).Error; err != nil {
 			return false, err
 		}
 		if err := deleteVaults(tx, teamVaults); err != nil {
@@ -109,7 +114,7 @@ func purgeUser(tx *gorm.DB, userID uuid.UUID, now time.Time) (bool, error) {
 
 	// 3. The user's own vaults.
 	var ownVaults []uuid.UUID
-	if err := tx.Model(&models.Vault{}).Where("owner_id = ?", userID).Pluck("id", &ownVaults).Error; err != nil {
+	if err := tx.Model(&models.Vault{}).Clauses(forUpdate).Where("owner_id = ?", userID).Pluck("id", &ownVaults).Error; err != nil {
 		return false, err
 	}
 	if err := deleteVaults(tx, ownVaults); err != nil {

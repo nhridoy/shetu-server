@@ -1,6 +1,7 @@
 package account
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -93,5 +94,15 @@ func TestGetStatus(t *testing.T) {
 	}
 	if s, _, err := GetStatus(db, uuid.New()); err != nil || s != StatusActive {
 		t.Fatalf("unknown: %v %v", s, err)
+	}
+}
+
+func TestCancelReportsDeletedAccount(t *testing.T) {
+	db, id := testDB(t)
+	Schedule(db, id, time.Now())
+	// The purge removed the row between the caller's status check and Cancel.
+	db.Where("id = ?", id).Delete(&models.User{})
+	if err := Cancel(db, id); !errors.Is(err, ErrAccountDeleted) {
+		t.Fatalf("Cancel = %v, want ErrAccountDeleted", err)
 	}
 }

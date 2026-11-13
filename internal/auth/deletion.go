@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -69,7 +70,12 @@ func HandleCancelDeletion(db *gorm.DB) gin.HandlerFunc {
 			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing user context")
 			return
 		}
-		if err := account.Cancel(db, userID.(uuid.UUID)); err != nil {
+		err := account.Cancel(db, userID.(uuid.UUID))
+		if errors.Is(err, account.ErrAccountDeleted) {
+			Error(c, http.StatusGone, "ACCOUNT_DELETED", "account has been deleted")
+			return
+		}
+		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to cancel deletion")
 			return
 		}

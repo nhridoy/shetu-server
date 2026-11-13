@@ -170,3 +170,20 @@ func TestCancelDeletion(t *testing.T) {
 		t.Fatal("date not cleared")
 	}
 }
+
+func TestCancelAfterPurgeReportsDeleted(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := testConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, _ := seedUserWithVerifier(t, db, "del@example.com")
+	db.Model(&models.User{}).Where("id = ?", uid).Update("deletion_scheduled_for", time.Now())
+	// The purge removed the row after the gate let the request through: no tombstone yet.
+	db.Where("id = ?", uid).Delete(&models.User{})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/me/deletion", nil)
+	req.Header.Set("Authorization", "Bearer "+makeAccessToken(uid, cfg))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusGone || !bytes.Contains(w.Body.Bytes(), []byte("ACCOUNT_DELETED")) {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
+	}
+}

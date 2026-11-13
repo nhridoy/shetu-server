@@ -190,6 +190,22 @@ func TestCancelAfterPurgeReportsDeleted(t *testing.T) {
 	}
 }
 
+func TestRequestDeletion_NonceForOtherEmail(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := testConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, v := seedUserWithVerifier(t, db, "del@example.com")
+	seedUserWithVerifier(t, db, "other@example.com")
+	// Nonce issued by prelogin for someone else's email.
+	w := postDeletion(t, r, db, "other@example.com", uid, v, makeAccessToken(uid, cfg), "del@example.com", []byte("n1"), true, false)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
+	}
+	if scheduledFor(db, uid) != nil {
+		t.Fatal("date must not be set")
+	}
+}
+
 // An SMTP server that accepts but never greets would hang smtp.SendMail forever;
 // the deletion response must not wait for it.
 func TestRequestDeletion_DoesNotWaitForEmail(t *testing.T) {

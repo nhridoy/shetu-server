@@ -167,8 +167,9 @@ func TestTeamSyncSnapshotReportsOwnerDeletion(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set("user_id", owner); c.Next() })
 	RegisterRoutes(router.Group("/api/v1"), db)
+	teamID := uuid.New()
 	body, _ := json.Marshal(map[string]any{"operations": []any{map[string]any{
-		"operation_id": uuid.New(), "type": "team.create", "payload": map[string]any{"team_id": uuid.New(), "name": "Doomed"},
+		"operation_id": uuid.New(), "type": "team.create", "payload": map[string]any{"team_id": teamID, "name": "Doomed"},
 	}}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/teams/sync", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -178,8 +179,16 @@ func TestTeamSyncSnapshotReportsOwnerDeletion(t *testing.T) {
 		t.Fatalf("sync status %d: %s", resp.Code, resp.Body)
 	}
 
-	teamEntry := func() map[string]any {
-		snap, _, _, err := teamSyncSnapshot(db, owner, nil)
+	member := uuid.New()
+	if err := db.Create(&models.User{ID: member, Email: "mem@example.com", FullName: "Mem"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.TeamMember{ID: uuid.New(), TeamID: teamID, UserID: member, Role: "member", State: "active"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	teamEntryFor := func(actor uuid.UUID) map[string]any {
+		snap, _, _, err := teamSyncSnapshot(db, actor, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,6 +201,7 @@ func TestTeamSyncSnapshotReportsOwnerDeletion(t *testing.T) {
 		}
 		return decoded.Teams[0]
 	}
+	teamEntry := func() map[string]any { return teamEntryFor(owner) }
 
 	when := time.Date(2026, 12, 13, 10, 0, 0, 0, time.UTC)
 	if err := db.Model(&models.User{}).Where("id = ?", owner).Update("deletion_scheduled_for", when).Error; err != nil {
@@ -203,6 +213,9 @@ func TestTeamSyncSnapshotReportsOwnerDeletion(t *testing.T) {
 	}
 	if entry["name"] != "Doomed" || entry["owner_id"] != owner.String() {
 		t.Errorf("existing keys changed: %v", entry)
+	}
+	if got := teamEntryFor(member)["owner_deletion_scheduled_for"]; got != "2026-12-13T10:00:00Z" {
+		t.Errorf("member snapshot owner_deletion_scheduled_for = %v", got)
 	}
 
 	if err := db.Model(&models.User{}).Where("id = ?", owner).Update("deletion_scheduled_for", nil).Error; err != nil {

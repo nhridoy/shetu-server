@@ -106,3 +106,45 @@ func TestCancelReportsDeletedAccount(t *testing.T) {
 		t.Fatalf("Cancel = %v, want ErrAccountDeleted", err)
 	}
 }
+
+// A concurrent request that commits its date between this request's read and
+// its write must win: the second Schedule keeps and returns the first date.
+func TestScheduleKeepsDateCommittedConcurrently(t *testing.T) {
+	db, id := testDB(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	first := now.Add(-time.Hour).Add(Grace)
+	fired := false
+	if err := db.Callback().Update().Before("gorm:update").Register("test:concurrent_schedule", func(d *gorm.DB) {
+		if fired || d.Statement.Table != "users" {
+			return
+		}
+		fired = true
+		if err := d.Session(&gorm.Session{NewDB: true}).Exec("UPDATE users SET deletion_scheduled_for = ? WHERE id = ?", first, id).Error; err != nil {
+			t.Error(err)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Schedule(db, id, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fired {
+		t.Fatal("concurrent write was not injected")
+	}
+	if !got.Equal(first) {
+		t.Fatalf("returned %v, want the first date %v", got, first)
+	}
+	var u models.User
+	db.First(&u, "id = ?", id)
+	if u.DeletionScheduledFor == nil || !u.DeletionScheduledFor.Equal(first) {
+		t.Fatalf("stored %v, want the first date %v", u.DeletionScheduledFor, first)
+	}
+}
+
+func TestScheduleUnknownUserFails(t *testing.T) {
+	db, _ := testDB(t)
+	if _, err := Schedule(db, uuid.New(), time.Now()); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("err = %v, want record not found", err)
+	}
+}

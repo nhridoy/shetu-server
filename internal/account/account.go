@@ -17,17 +17,21 @@ const Grace = 30 * 24 * time.Hour
 func Schedule(db *gorm.DB, userID uuid.UUID, now time.Time) (time.Time, error) {
 	var at time.Time
 	err := db.Transaction(func(tx *gorm.DB) error {
-		var u models.User
-		if err := tx.First(&u, "id = ?", userID).Error; err != nil {
-			return err
+		at = now.Add(Grace)
+		// Conditional so a concurrent request that set the date first keeps it.
+		res := tx.Model(&models.User{}).Where("id = ? AND deletion_scheduled_for IS NULL", userID).Update("deletion_scheduled_for", at)
+		if res.Error != nil {
+			return res.Error
 		}
-		if u.DeletionScheduledFor != nil {
-			at = *u.DeletionScheduledFor
-		} else {
-			at = now.Add(Grace)
-			if err := tx.Model(&models.User{}).Where("id = ?", userID).Update("deletion_scheduled_for", at).Error; err != nil {
+		if res.RowsAffected == 0 {
+			var u models.User
+			if err := tx.Select("id", "deletion_scheduled_for").First(&u, "id = ?", userID).Error; err != nil {
 				return err
 			}
+			if u.DeletionScheduledFor == nil {
+				return errors.New("deletion date not set")
+			}
+			at = *u.DeletionScheduledFor
 		}
 		return tx.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked_at IS NULL", userID).Update("revoked_at", now).Error
 	})

@@ -35,8 +35,11 @@ func HandleRequestDeletion(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		var user models.User
-		if db.Where("id = ?", userID).First(&user).Error != nil {
+		if err := db.Where("id = ?", userID).First(&user).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 			Error(c, http.StatusNotFound, "NOT_FOUND", "user not found")
+			return
+		} else if err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load user")
 			return
 		}
 		// Checked before the proof so a typo does not burn the nonce.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -255,5 +256,25 @@ func TestRequestDeletion_DoesNotWaitForEmail(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler waited on SMTP")
+	}
+}
+
+// A database failure while loading the user is a server error, not a 404.
+func TestRequestDeletion_UserLookupErrorIs500(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := testConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, v := seedUserWithVerifier(t, db, "del@example.com")
+	// The gate reads into a slice; only the handler's single-row load fails.
+	if err := db.Callback().Query().Before("gorm:query").Register("test:user_lookup_fails", func(d *gorm.DB) {
+		if _, single := d.Statement.Dest.(*models.User); single && d.Statement.Table == "users" {
+			d.AddError(errors.New("connection reset"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := postDeletion(t, r, db, "del@example.com", uid, v, makeAccessToken(uid, cfg), "del@example.com", []byte("n1"), true, false)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
 	}
 }

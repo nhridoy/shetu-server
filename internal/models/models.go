@@ -34,6 +34,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&SessionPreferences{},
 		&SyncChange{},
 		&SyncOperation{},
+		&DeletedAccount{},
 	); err != nil {
 		return err
 	}

@@ -1,7 +1,10 @@
 package models
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	gormsqlite "github.com/glebarez/sqlite"
 	"github.com/google/uuid"
@@ -252,5 +255,39 @@ func TestUserModel(t *testing.T) {
 	}
 	if found.FullName != "Test User" {
 		t.Errorf("expected name 'Test User', got '%s'", found.FullName)
+	}
+}
+
+func TestAutoMigrateCreatesDeletionSchema(t *testing.T) {
+	db := setupTestDB(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate failed: %v", err)
+	}
+	if !db.Migrator().HasColumn(&User{}, "deletion_scheduled_for") {
+		t.Errorf("users.deletion_scheduled_for column missing")
+	}
+	if !db.Migrator().HasTable(&DeletedAccount{}) {
+		t.Errorf("deleted_accounts table missing")
+	}
+
+	when := time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	u := User{ID: uuid.New(), Email: "d@example.com", FullName: "D", DeletionScheduledFor: &when}
+	if err := db.Create(&u).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	var got User
+	if err := db.First(&got, "id = ?", u.ID).Error; err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	if got.DeletionScheduledFor == nil || !got.DeletionScheduledFor.Equal(when) {
+		t.Errorf("DeletionScheduledFor round-trip = %v, want %v", got.DeletionScheduledFor, when)
+	}
+
+	b, err := json.Marshal(User{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "deletion_scheduled_for") {
+		t.Errorf("unset field should be omitted from JSON: %s", b)
 	}
 }

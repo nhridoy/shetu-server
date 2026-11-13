@@ -1,10 +1,19 @@
 package email
 
 import (
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/smtp"
 	"time"
+)
+
+// Package vars so tests can shorten them.
+var (
+	dialTimeout    = 10 * time.Second
+	sessionTimeout = 30 * time.Second
 )
 
 type Sender struct {
@@ -53,15 +62,59 @@ func (s *Sender) send(to, subject, html string) error {
 		"\r\n" +
 		html)
 
-	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
-	var auth smtp.Auth
-	if s.Username != "" {
-		auth = smtp.PlainAuth("", s.Username, s.Password, s.Host)
-	}
-	if err := smtp.SendMail(addr, auth, s.From, []string{to}, msg); err != nil {
+	if err := s.deliver(to, msg); err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
 	return nil
+}
+
+// deliver is smtp.SendMail with a dial timeout and a deadline on the whole
+// session, so a server that accepts but never answers cannot block forever.
+func (s *Sender) deliver(to string, msg []byte) error {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", s.Host, s.Port), dialTimeout)
+	if err != nil {
+		return err
+	}
+	if err := conn.SetDeadline(time.Now().Add(sessionTimeout)); err != nil {
+		conn.Close()
+		return err
+	}
+	c, err := smtp.NewClient(conn, s.Host)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	defer c.Close()
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err := c.StartTLS(&tls.Config{ServerName: s.Host}); err != nil {
+			return err
+		}
+	}
+	if s.Username != "" {
+		if ok, _ := c.Extension("AUTH"); !ok {
+			return errors.New("smtp: server doesn't support AUTH")
+		}
+		if err := c.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
+			return err
+		}
+	}
+	if err := c.Mail(s.From); err != nil {
+		return err
+	}
+	if err := c.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
 }
 
 func (s *Sender) SendAccountDeletionNotice(to string, on time.Time) error {

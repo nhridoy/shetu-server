@@ -68,6 +68,9 @@ func (s *Sender) SendAccountDeletionNotice(to string, on time.Time) error {
 	if !s.Enabled() {
 		return fmt.Errorf("email delivery is not configured (SMTP_HOST unset)")
 	}
-	html := fmt.Sprintf("<p>Your Shetu account is scheduled for deletion on %s.</p><p>Sign in to Shetu before then to keep your account.</p>", on.Format("2 January 2006"))
-	return s.send(to, "Your Shetu account will be deleted", html)
+	return s.send(to, "Your Shetu account will be deleted", deletionNoticeBody(on))
+}
+
+func deletionNoticeBody(on time.Time) string {
+	return fmt.Sprintf("<p>Your Shetu account is scheduled for deletion on %s (UTC).</p><p>Sign in to Shetu before then to keep your account.</p>", on.UTC().Format("2 January 2006"))
 }

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -185,5 +187,57 @@ func TestCancelAfterPurgeReportsDeleted(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusGone || !bytes.Contains(w.Body.Bytes(), []byte("ACCOUNT_DELETED")) {
 		t.Fatalf("got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// An SMTP server that accepts but never greets would hang smtp.SendMail forever;
+// the deletion response must not wait for it.
+func TestRequestDeletion_DoesNotWaitForEmail(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conns []net.Conn
+	var mu sync.Mutex
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	})
+
+	db := setupTestDB(t)
+	cfg := testConfig()
+	cfg.SMTPHost = "127.0.0.1"
+	cfg.SMTPPort = ln.Addr().(*net.TCPAddr).Port
+	r := setupHandlerRouter(db, cfg)
+	uid, v := seedUserWithVerifier(t, db, "del@example.com")
+
+	nonce := []byte("n1")
+	seedLoginNonce(t, db, "del@example.com", base64.RawStdEncoding.EncodeToString(nonce))
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- postDeletion(t, r, db, "del@example.com", uid, v, makeAccessToken(uid, cfg), "del@example.com", nonce, false, false)
+	}()
+	select {
+	case w := <-done:
+		if w.Code != http.StatusOK {
+			t.Fatalf("got %d: %s", w.Code, w.Body.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler waited on SMTP")
 	}
 }

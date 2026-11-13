@@ -55,9 +55,13 @@ func HandleRequestDeletion(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 		sender := email.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom, cfg.LogOtpFallback)
 		if sender.Enabled() {
-			if err := sender.SendAccountDeletionNotice(user.Email, at); err != nil {
-				slog.Error("failed to send account deletion notice", "error", err)
-			}
+			// Background so SMTP never delays the response; the error is not
+			// logged because SMTP errors often echo the recipient address.
+			go func() {
+				if sender.SendAccountDeletionNotice(user.Email, at) != nil {
+					slog.Warn("account deletion notice not sent")
+				}
+			}()
 		}
 		Success(c, http.StatusOK, gin.H{"deletion_scheduled_for": at.UTC().Format(time.RFC3339)})
 	}

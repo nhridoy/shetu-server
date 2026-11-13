@@ -1,6 +1,7 @@
 package email
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,5 +40,14 @@ func TestSendAccountDeletionNotice_DisabledReturnsError(t *testing.T) {
 	s := New("", 587, "", "", "", false)
 	if err := s.SendAccountDeletionNotice("user@example.com", time.Now()); err == nil {
 		t.Fatal("disabled sender must return an error")
+	}
+}
+
+func TestDeletionNoticeBody_UsesUTCDate(t *testing.T) {
+	// 02:00 on the 14th in UTC+6 is still the 13th in UTC.
+	on := time.Date(2026, 12, 14, 2, 0, 0, 0, time.FixedZone("UTC+6", 6*60*60))
+	body := deletionNoticeBody(on)
+	if !strings.Contains(body, "13 December 2026 (UTC)") {
+		t.Fatalf("body = %q, want the UTC date marked (UTC)", body)
 	}
 }

@@ -55,6 +55,7 @@ func MigrateTimestamps(db *gorm.DB) error {
 		"hosts":                 {"created_at", "updated_at", "deleted_at"},
 		"keys":                  {"created_at", "updated_at", "deleted_at"},
 		"snippets":              {"created_at", "updated_at", "deleted_at"},
+		"identities":            {"created_at", "updated_at", "deleted_at"},
 		"workspaces":            {"created_at", "updated_at", "deleted_at"},
 		"presets":               {"created_at", "updated_at", "deleted_at"},
 		"port_forwards":         {"created_at", "updated_at", "deleted_at"},

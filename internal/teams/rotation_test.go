@@ -179,3 +179,28 @@ func TestRotationStagesAndPublishesAtomically(t *testing.T) {
 		}
 	}
 }
+
+func TestRotationCoversIdentities(t *testing.T) {
+	db, err := gorm.Open(gormsqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := models.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	vaultID, id := uuid.New(), uuid.New()
+	if err := db.Create(&models.Identity{ID: id, VaultID: vaultID, Name: "deploy", Revision: 1, Data: "x"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := rotationInventory(db, vaultID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := inventory[rotationRowKey("identities", id)]; !ok {
+		t.Fatalf("identities missing from rotation inventory: %v", inventory)
+	}
+	record, err := rotationRecord(db, "identities", id)
+	if err != nil || record["name"] != "deploy" {
+		t.Fatalf("rotationRecord identities: %v %v", record, err)
+	}
+}

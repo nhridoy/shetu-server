@@ -57,6 +57,7 @@ func TestAutoMigrate(t *testing.T) {
 		"hosts":          false,
 		"keys":           false,
 		"snippets":       false,
+		"identities":     false,
 	}
 
 	for _, table := range tables {

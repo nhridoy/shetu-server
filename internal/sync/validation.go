@@ -24,6 +24,7 @@ var tableFields = map[string][]string{
 	"hosts":                 {"os", "auth_type", "tags", "color", "group_id", "key_id"},
 	"keys":                  {"description", "key_type", "fingerprint", "public_key"},
 	"snippets":              {"description", "tags"},
+	"identities":            {},
 	"workspaces":            {},
 	"presets":               {},
 	"port_forwards":         {"host_id", "mode"},

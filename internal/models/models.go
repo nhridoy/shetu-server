@@ -26,6 +26,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&Host{},
 		&Key{},
 		&Snippet{},
+		&Identity{},
 		&Workspace{},
 		&Preset{},
 		&PortForward{},

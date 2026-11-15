@@ -19,12 +19,12 @@ const goneEmail = "gone@example.com"
 var allTables = []string{
 	"users", "user_keys", "refresh_tokens", "auth_codes", "login_nonces", "vaults", "teams",
 	"team_members", "team_invites", "team_sync_operations", "vault_key_envelopes", "vault_rotations",
-	"groups", "hosts", "keys", "snippets", "workspaces", "presets", "port_forwards", "session_history",
+	"groups", "hosts", "keys", "snippets", "identities", "workspaces", "presets", "port_forwards", "session_history",
 	"session_output_chunks", "session_preferences", "sync_changes", "sync_operations", "deleted_accounts",
 }
 
 var vaultTables = []string{
-	"groups", "hosts", "keys", "snippets", "workspaces", "presets", "port_forwards", "session_history",
+	"groups", "hosts", "keys", "snippets", "identities", "workspaces", "presets", "port_forwards", "session_history",
 	"session_output_chunks", "session_preferences", "sync_changes", "sync_operations",
 	"vault_key_envelopes", "vault_rotations",
 }
@@ -72,6 +72,7 @@ func seedVaultRows(t *testing.T, db *gorm.DB, vaultID uuid.UUID) {
 		&models.Host{ID: uuid.New(), VaultID: vaultID},
 		&models.Key{ID: uuid.New(), VaultID: vaultID},
 		&models.Snippet{ID: uuid.New(), VaultID: vaultID},
+		&models.Identity{ID: uuid.New(), VaultID: vaultID},
 		&models.Workspace{ID: uuid.New(), VaultID: vaultID},
 		&models.Preset{ID: uuid.New(), VaultID: vaultID},
 		&models.PortForward{ID: uuid.New(), VaultID: vaultID},

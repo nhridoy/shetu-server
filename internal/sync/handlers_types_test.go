@@ -22,6 +22,7 @@ func TestEverySavedRecordTypePushesAndPulls(t *testing.T) {
 		{"groups", uuid.New(), nil},
 		{"keys", uuid.New(), map[string]any{"key_type": "ed25519", "public_key": "ssh-ed25519 AAAA"}},
 		{"snippets", uuid.New(), nil},
+		{"identities", uuid.New(), nil},
 		{"workspaces", uuid.New(), nil},
 		{"presets", uuid.New(), nil},
 		{"hosts", hostID, map[string]any{"auth_type": "password", "tags": "[]"}},

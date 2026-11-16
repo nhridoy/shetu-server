@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/nhridoy/shetu-server/internal/config"
+	"gorm.io/gorm"
 )
 
 func RequestID() gin.HandlerFunc {
@@ -20,7 +21,8 @@ func RequestID() gin.HandlerFunc {
 	}
 }
 
-func JWTMiddleware(cfg *config.Config) gin.HandlerFunc {
+// db may be nil (tests of token parsing only); then the revoked-device check is skipped.
+func JWTMiddleware(cfg *config.Config, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -64,6 +66,18 @@ func JWTMiddleware(cfg *config.Config) gin.HandlerFunc {
 				"error": gin.H{
 					"code":       "UNAUTHORIZED",
 					"message":    "invalid user id in token",
+					"request_id": c.GetString("request_id"),
+				},
+			})
+			return
+		}
+
+		// A device signed out from another one is turned away now, not when its token expires.
+		if db != nil && deviceRevoked(db, userID, claims.DeviceID) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": gin.H{
+					"code":       "DEVICE_REVOKED",
+					"message":    "This device was signed out",
 					"request_id": c.GetString("request_id"),
 				},
 			})

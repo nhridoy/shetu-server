@@ -156,3 +156,201 @@ func TestDevice_AccountStatusDeviceRevokedOnlyForOwnDevice(t *testing.T) {
 		t.Fatal("unknown device must not be reported")
 	}
 }
+
+func doJSON(r *gin.Engine, method, path string, payload any, token string) *httptest.ResponseRecorder {
+	var body *bytes.Reader
+	if payload != nil {
+		b, _ := json.Marshal(payload)
+		body = bytes.NewReader(b)
+	} else {
+		body = bytes.NewReader(nil)
+	}
+	req := httptest.NewRequest(method, path, body)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+type listedDevice struct {
+	DeviceID   string `json:"device_id"`
+	Name       string `json:"name"`
+	Platform   string `json:"platform"`
+	AppVersion string `json:"app_version"`
+	Current    bool   `json:"current"`
+}
+
+func listDevices(t *testing.T, r *gin.Engine, token string) []listedDevice {
+	t.Helper()
+	w := doJSON(r, http.MethodGet, "/api/v1/me/devices", nil, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data []listedDevice `json:"data"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	return resp.Data
+}
+
+func TestDevice_MiddlewareRejectsRevokedDevice(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	uid, verifier := seedUserWithVerifier(t, db, "mw@example.com")
+	device := uuid.NewString()
+	access, _ := loginWithDevice(t, r, db, "mw@example.com", verifier, device)
+	db.Model(&models.Device{}).Where("user_id = ? AND device_id = ?", uid, device).Update("revoked_at", time.Now())
+
+	w := doJSON(r, http.MethodGet, "/api/v1/test-protected", nil, access)
+	if w.Code != http.StatusUnauthorized || !bytes.Contains(w.Body.Bytes(), []byte("DEVICE_REVOKED")) {
+		t.Fatalf("expected 401 DEVICE_REVOKED, got %d %s", w.Code, w.Body.String())
+	}
+	// Tokens without a device id (older clients) are not checked.
+	plain, _ := loginWithDevice(t, r, db, "mw@example.com", verifier, "")
+	if w := doJSON(r, http.MethodGet, "/api/v1/test-protected", nil, plain); w.Code != http.StatusOK {
+		t.Fatalf("no device id: %d", w.Code)
+	}
+}
+
+func TestDevice_ListExcludesRevokedAndSignedOut(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	uid, verifier := seedUserWithVerifier(t, db, "list@example.com")
+	here, other, gone, out := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	access, _ := loginWithDevice(t, r, db, "list@example.com", verifier, here)
+	loginWithDevice(t, r, db, "list@example.com", verifier, other)
+	loginWithDevice(t, r, db, "list@example.com", verifier, gone)
+	_, outRefresh := loginWithDevice(t, r, db, "list@example.com", verifier, out)
+	db.Model(&models.Device{}).Where("user_id = ? AND device_id = ?", uid, gone).Update("revoked_at", time.Now())
+	if w := postJSONTo(r, "/api/v1/auth/logout", gin.H{"refresh_token": outRefresh}, ""); w.Code >= 300 {
+		t.Fatalf("logout: %d", w.Code)
+	}
+	db.Model(&models.Device{}).Where("user_id = ? AND device_id = ?", uid, other).Update("last_seen_at", time.Now().Add(time.Hour))
+
+	got := listDevices(t, r, access)
+	if len(got) != 2 || got[0].DeviceID != other || got[1].DeviceID != here {
+		t.Fatalf("want [other, here] newest first, got %+v", got)
+	}
+	if got[0].Current || !got[1].Current {
+		t.Fatalf("current flag wrong: %+v", got)
+	}
+}
+
+func TestDevice_UpdateCurrentTrimsAndCaps(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "cur@example.com")
+	access, _ := loginWithDevice(t, r, db, "cur@example.com", verifier, uuid.NewString())
+	long := string(bytes.Repeat([]byte("x"), 150))
+	w := doJSON(r, http.MethodPut, "/api/v1/me/devices/current", gin.H{"name": "  laptop  ", "platform": "linux", "app_version": long}, access)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("update current: %d %s", w.Code, w.Body.String())
+	}
+	d := listDevices(t, r, access)[0]
+	if d.Name != "laptop" || d.Platform != "linux" || len(d.AppVersion) != 100 {
+		t.Fatalf("got %+v", d)
+	}
+	noDevice, _ := loginWithDevice(t, r, db, "cur@example.com", verifier, "")
+	if w := doJSON(r, http.MethodPut, "/api/v1/me/devices/current", gin.H{"name": "x"}, noDevice); w.Code != http.StatusBadRequest {
+		t.Fatalf("no device id: %d", w.Code)
+	}
+}
+
+func TestDevice_RenameValidates(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "ren@example.com")
+	access, _ := loginWithDevice(t, r, db, "ren@example.com", verifier, uuid.NewString())
+	other := uuid.NewString()
+	loginWithDevice(t, r, db, "ren@example.com", verifier, other)
+	path := "/api/v1/me/devices/" + other
+	if w := doJSON(r, http.MethodPatch, path, gin.H{"name": "   "}, access); w.Code != http.StatusBadRequest {
+		t.Fatalf("empty: %d", w.Code)
+	}
+	if w := doJSON(r, http.MethodPatch, path, gin.H{"name": string(bytes.Repeat([]byte("a"), 101))}, access); w.Code != http.StatusBadRequest {
+		t.Fatalf("101 chars: %d", w.Code)
+	}
+	if w := doJSON(r, http.MethodPatch, path, gin.H{"name": " Work PC "}, access); w.Code != http.StatusNoContent {
+		t.Fatalf("ok: %d %s", w.Code, w.Body.String())
+	}
+	for _, d := range listDevices(t, r, access) {
+		if d.DeviceID == other && d.Name != "Work PC" {
+			t.Fatalf("rename not saved: %+v", d)
+		}
+	}
+}
+
+func TestDevice_RevokeOneRevokesTokens(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "one@example.com")
+	access, _ := loginWithDevice(t, r, db, "one@example.com", verifier, uuid.NewString())
+	other := uuid.NewString()
+	otherAccess, otherRefresh := loginWithDevice(t, r, db, "one@example.com", verifier, other)
+	if w := doJSON(r, http.MethodDelete, "/api/v1/me/devices/"+other, nil, access); w.Code != http.StatusNoContent {
+		t.Fatalf("revoke: %d %s", w.Code, w.Body.String())
+	}
+	if w := postJSONTo(r, "/api/v1/auth/refresh", gin.H{"refresh_token": otherRefresh}, ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked refresh: %d", w.Code)
+	}
+	if w := doJSON(r, http.MethodGet, "/api/v1/test-protected", nil, otherAccess); w.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked access: %d", w.Code)
+	}
+}
+
+func TestDevice_RevokeCurrentDeviceRefused(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "self@example.com")
+	here := uuid.NewString()
+	access, _ := loginWithDevice(t, r, db, "self@example.com", verifier, here)
+	if w := doJSON(r, http.MethodDelete, "/api/v1/me/devices/"+here, nil, access); w.Code != http.StatusBadRequest {
+		t.Fatalf("revoke self: %d", w.Code)
+	}
+}
+
+func TestDevice_RevokeOtherUsersDeviceNotFound(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, va := seedUserWithVerifier(t, db, "a@example.com")
+	bob, vb := seedUserWithVerifier(t, db, "b@example.com")
+	access, _ := loginWithDevice(t, r, db, "a@example.com", va, uuid.NewString())
+	bobDevice := uuid.NewString()
+	loginWithDevice(t, r, db, "b@example.com", vb, bobDevice)
+	if w := doJSON(r, http.MethodDelete, "/api/v1/me/devices/"+bobDevice, nil, access); w.Code != http.StatusNotFound {
+		t.Fatalf("other user's device: %d", w.Code)
+	}
+	if w := doJSON(r, http.MethodPatch, "/api/v1/me/devices/"+bobDevice, gin.H{"name": "x"}, access); w.Code != http.StatusNotFound {
+		t.Fatalf("rename other user's device: %d", w.Code)
+	}
+	if deviceRow(t, db, bob, bobDevice).RevokedAt != nil {
+		t.Fatal("bob's device must stay active")
+	}
+}
+
+func TestDevice_RevokeOthersKeepsCurrent(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	uid, verifier := seedUserWithVerifier(t, db, "all@example.com")
+	here := uuid.NewString()
+	access, _ := loginWithDevice(t, r, db, "all@example.com", verifier, here)
+	loginWithDevice(t, r, db, "all@example.com", verifier, uuid.NewString())
+	loginWithDevice(t, r, db, "all@example.com", verifier, uuid.NewString())
+	w := doJSON(r, http.MethodPost, "/api/v1/me/devices/revoke-others", nil, access)
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"revoked":2`)) {
+		t.Fatalf("revoke others: %d %s", w.Code, w.Body.String())
+	}
+	if deviceRow(t, db, uid, here).RevokedAt != nil {
+		t.Fatal("current device must stay")
+	}
+	if got := listDevices(t, r, access); len(got) != 1 {
+		t.Fatalf("only this device should remain: %+v", got)
+	}
+	noDevice, _ := loginWithDevice(t, r, db, "all@example.com", verifier, "")
+	if w := doJSON(r, http.MethodPost, "/api/v1/me/devices/revoke-others", nil, noDevice); w.Code != http.StatusBadRequest {
+		t.Fatalf("no device id: %d", w.Code)
+	}
+}

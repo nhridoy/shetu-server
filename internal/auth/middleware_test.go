@@ -76,7 +76,7 @@ func TestJWTMiddleware_MissingAuthorization(t *testing.T) {
 	}
 	r := gin.New()
 	r.Use(RequestID())
-	r.Use(JWTMiddleware(cfg))
+	r.Use(JWTMiddleware(cfg, nil))
 	r.GET("/protected", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true})
 	})
@@ -96,7 +96,7 @@ func TestJWTMiddleware_InvalidToken(t *testing.T) {
 	}
 	r := gin.New()
 	r.Use(RequestID())
-	r.Use(JWTMiddleware(cfg))
+	r.Use(JWTMiddleware(cfg, nil))
 	r.GET("/protected", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true})
 	})
@@ -122,7 +122,7 @@ func TestJWTMiddleware_ExpiredToken(t *testing.T) {
 
 	r := gin.New()
 	r.Use(RequestID())
-	r.Use(JWTMiddleware(cfg))
+	r.Use(JWTMiddleware(cfg, nil))
 	r.GET("/protected", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true})
 	})
@@ -148,7 +148,7 @@ func TestJWTMiddleware_ValidToken(t *testing.T) {
 
 	r := gin.New()
 	r.Use(RequestID())
-	r.Use(JWTMiddleware(cfg))
+	r.Use(JWTMiddleware(cfg, nil))
 	r.GET("/protected", func(c *gin.Context) {
 		uid, exists := c.Get("user_id")
 		if !exists {
@@ -176,7 +176,7 @@ func TestJWTMiddleware_MalformedHeader(t *testing.T) {
 	}
 	r := gin.New()
 	r.Use(RequestID())
-	r.Use(JWTMiddleware(cfg))
+	r.Use(JWTMiddleware(cfg, nil))
 	r.GET("/protected", func(c *gin.Context) {
 		c.JSON(200, gin.H{"ok": true})
 	})

@@ -123,7 +123,7 @@ func purgeUser(tx *gorm.DB, userID uuid.UUID, now time.Time) (bool, error) {
 	}
 
 	// 4. Credentials and records keyed by the user.
-	for _, m := range []any{&models.UserKey{}, &models.RefreshToken{}, &models.AuthCode{}, &models.TeamSyncOperation{}} {
+	for _, m := range []any{&models.UserKey{}, &models.RefreshToken{}, &models.Device{}, &models.AuthCode{}, &models.TeamSyncOperation{}} {
 		if err := tx.Where("user_id = ?", userID).Delete(m).Error; err != nil {
 			return false, err
 		}

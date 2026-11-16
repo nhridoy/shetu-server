@@ -371,6 +371,13 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// A device signed out from another one: refuse, but this is not token theft, so don't
+		// treat its revoked token as reuse (that would sign out every device, the revoker too).
+		if deviceRevoked(db, rt.UserID, rt.DeviceID) {
+			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "this device was signed out")
+			return
+		}
+
 		if rt.RevokedAt != nil {
 			db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked_at IS NULL", rt.UserID).
 				Update("revoked_at", time.Now())

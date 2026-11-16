@@ -132,7 +132,12 @@ func HandleUpdateCurrentDevice(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		err := db.Model(&models.Device{}).Where("user_id = ? AND device_id = ?", userID, deviceID).
-			Updates(map[string]any{"name": capField(req.Name), "platform": capField(req.Platform), "app_version": capField(req.AppVersion)}).Error
+			Updates(map[string]any{
+				// The computer name only fills an empty name: a rename from the list sticks.
+				"name":        gorm.Expr("CASE WHEN name = '' THEN ? ELSE name END", capField(req.Name)),
+				"platform":    capField(req.Platform),
+				"app_version": capField(req.AppVersion),
+			}).Error
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to save device")
 			return

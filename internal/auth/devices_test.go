@@ -354,3 +354,41 @@ func TestDevice_RevokeOthersKeepsCurrent(t *testing.T) {
 		t.Fatalf("no device id: %d", w.Code)
 	}
 }
+
+func TestDevice_RevokedDeviceRefreshDoesNotSignOutOthers(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "bys@example.com")
+	access, mine := loginWithDevice(t, r, db, "bys@example.com", verifier, uuid.NewString())
+	other := uuid.NewString()
+	_, otherRefresh := loginWithDevice(t, r, db, "bys@example.com", verifier, other)
+	if w := doJSON(r, http.MethodDelete, "/api/v1/me/devices/"+other, nil, access); w.Code != http.StatusNoContent {
+		t.Fatalf("revoke: %d", w.Code)
+	}
+	// The revoked device comes online and tries to refresh: refused...
+	if w := postJSONTo(r, "/api/v1/auth/refresh", gin.H{"refresh_token": otherRefresh}, ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked refresh: %d", w.Code)
+	}
+	// ...without being taken as token reuse that signs everyone out.
+	if w := postJSONTo(r, "/api/v1/auth/refresh", gin.H{"refresh_token": mine}, ""); w.Code != http.StatusOK {
+		t.Fatalf("the revoking device must keep its session: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDevice_ReportDoesNotOverwriteARename(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "keep@example.com")
+	access, _ := loginWithDevice(t, r, db, "keep@example.com", verifier, uuid.NewString())
+	other := uuid.NewString()
+	otherAccess, _ := loginWithDevice(t, r, db, "keep@example.com", verifier, other)
+	doJSON(r, http.MethodPut, "/api/v1/me/devices/current", gin.H{"name": "DESKTOP-7Q3", "platform": "windows", "app_version": "1"}, otherAccess)
+	doJSON(r, http.MethodPatch, "/api/v1/me/devices/"+other, gin.H{"name": "Work PC"}, access)
+	// The renamed device reconnects and reports its computer name again.
+	doJSON(r, http.MethodPut, "/api/v1/me/devices/current", gin.H{"name": "DESKTOP-7Q3", "platform": "windows", "app_version": "2"}, otherAccess)
+	for _, d := range listDevices(t, r, access) {
+		if d.DeviceID == other && (d.Name != "Work PC" || d.AppVersion != "2") {
+			t.Fatalf("rename lost or version not updated: %+v", d)
+		}
+	}
+}

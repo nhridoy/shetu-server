@@ -221,6 +221,7 @@ func HandleRegister(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		recordDevice(db, userID, req.DeviceID, true)
 		rt, err := createRefreshToken(db, userID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -326,6 +327,7 @@ func HandleLogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		now := time.Now()
 		db.Model(&user).Update("last_login_at", &now)
 
+		recordDevice(db, user.ID, req.DeviceID, true)
 		rtToken, err := createRefreshToken(db, user.ID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -387,6 +389,7 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			"rotated_at": &now,
 		})
 
+		recordDevice(db, rt.UserID, rt.DeviceID, false)
 		newRT, err := createRefreshToken(db, rt.UserID, rt.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -909,6 +912,7 @@ func HandleVerifyEmail(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		recordDevice(db, user.ID, req.DeviceID, true)
 		rt, err := createRefreshToken(db, user.ID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")

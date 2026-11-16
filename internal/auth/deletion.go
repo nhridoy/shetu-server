@@ -93,7 +93,8 @@ func HandleCancelDeletion(db *gorm.DB) gin.HandlerFunc {
 func HandleAccountStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			UserID string `json:"user_id"`
+			UserID   string `json:"user_id"`
+			DeviceID string `json:"device_id"`
 		}
 		id, err := uuid.Parse("")
 		if c.ShouldBindJSON(&req) == nil {
@@ -109,6 +110,10 @@ func HandleAccountStatus(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		data := gin.H{"status": status}
+		// A device signed out from another one erases its local data when it sees this.
+		if deviceRevoked(db, id, req.DeviceID) {
+			data["device_revoked"] = true
+		}
 		if at != nil {
 			data["deletion_scheduled_for"] = at.UTC().Format(time.RFC3339)
 		}

@@ -12,6 +12,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&User{},
 		&UserKey{},
 		&RefreshToken{},
+		&Device{},
 		&OAuthState{},
 		&AuthCode{},
 		&LoginNonce{},

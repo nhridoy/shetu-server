@@ -175,3 +175,81 @@ func TestLive_StuckClientDoesNotHoldTheHandler(t *testing.T) {
 		t.Fatal("a client that stopped reading kept the handler alive")
 	}
 }
+
+func TestLive_IdleStreamOutlivesTheWriteTimeout(t *testing.T) {
+	useHub(t)
+	prevW, prevP := writeTimeout, pingEvery
+	writeTimeout, pingEvery = 50*time.Millisecond, 200*time.Millisecond
+	t.Cleanup(func() { writeTimeout, pingEvery = prevW, prevP })
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/live", func(c *gin.Context) {
+		c.Set("user_id", uuid.New())
+		c.Set("token_exp", time.Now().Add(time.Hour))
+		c.Next()
+	}, HandleLive())
+	// HTTP/2, where an expired write deadline resets the stream rather than waiting.
+	srv := httptest.NewUnstartedServer(r)
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	res, err := srv.Client().Get(srv.URL + "/live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.ProtoMajor != 2 {
+		t.Fatalf("want HTTP/2, got %s", res.Proto)
+	}
+	sc := bufio.NewScanner(res.Body)
+	pings := 0
+	deadline := time.After(2 * time.Second)
+	got := make(chan string)
+	go func() {
+		for sc.Scan() {
+			got <- sc.Text()
+		}
+		close(got)
+	}()
+	for pings < 2 {
+		select {
+		case l, ok := <-got:
+			if !ok {
+				t.Fatalf("stream ended after %d pings (idle longer than the write timeout)", pings)
+			}
+			if l == ": ping" {
+				pings++
+			}
+		case <-deadline:
+			t.Fatalf("only %d pings", pings)
+		}
+	}
+}
+
+// flushFails is a connection whose flush fails (the client went away).
+type flushFails struct{ header http.Header }
+
+func (w *flushFails) Header() http.Header         { return w.header }
+func (w *flushFails) WriteHeader(int)             {}
+func (w *flushFails) Write(b []byte) (int, error) { return len(b), nil }
+func (w *flushFails) Flush()                      {}
+func (w *flushFails) FlushError() error           { return errors.New("connection reset") }
+
+func TestLive_FailedFlushEndsTheStream(t *testing.T) {
+	useHub(t)
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(&flushFails{header: http.Header{}})
+	c.Request = httptest.NewRequest(http.MethodGet, "/live", nil)
+	c.Set("user_id", uuid.New())
+	c.Set("token_exp", time.Now().Add(time.Hour))
+	done := make(chan struct{})
+	go func() {
+		HandleLive()(c)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a failed flush must end the stream")
+	}
+}

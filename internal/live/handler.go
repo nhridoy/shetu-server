@@ -1,6 +1,7 @@
 package live
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -30,19 +31,34 @@ func HandleLive() gin.HandlerFunc {
 		h.Set("X-Accel-Buffering", "no")
 		c.Status(http.StatusOK)
 		exp := c.GetTime("token_exp")
-		rc := http.NewResponseController(c.Writer)
+		// Gin's own Flush drops the error; control the underlying connection directly.
+		var conn http.ResponseWriter = c.Writer
+		if u, ok := c.Writer.(interface{ Unwrap() http.ResponseWriter }); ok {
+			conn = u.Unwrap()
+		}
+		rc := http.NewResponseController(conn)
+		setDeadline := func(d time.Time) bool {
+			err := rc.SetWriteDeadline(d)
+			return err == nil || errors.Is(err, http.ErrNotSupported)
+		}
 		write := func(s string) bool {
 			// Each write gets its own deadline (never past the token's expiry), so a stalled
-			// client ends the stream instead of blocking it.
+			// client ends the stream instead of blocking it. The deadline is cleared again
+			// afterwards: an expired one would reset an idle HTTP/2 stream before the next ping.
 			deadline := time.Now().Add(writeTimeout)
 			if exp.Before(deadline) {
 				deadline = exp
 			}
-			_ = rc.SetWriteDeadline(deadline)
+			if !setDeadline(deadline) {
+				return false
+			}
 			if _, err := c.Writer.WriteString(s); err != nil {
 				return false
 			}
-			return rc.Flush() == nil
+			if err := rc.Flush(); err != nil {
+				return false
+			}
+			return setDeadline(time.Time{})
 		}
 		if !write("event: ready\ndata: {}\n\n") {
 			return

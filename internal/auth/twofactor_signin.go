@@ -56,7 +56,7 @@ func accountAttempts(db *gorm.DB, userID uuid.UUID) (int64, error) {
 }
 
 func accountLocked(c *gin.Context) {
-	Error(c, http.StatusTooManyRequests, "TWO_FACTOR_LOCKED", "Too many two-factor attempts. Try again in 15 minutes.")
+	Error(c, http.StatusTooManyRequests, "TWO_FACTOR_LOCKED", "Too many two-factor attempts. Try again in 30 minutes.")
 }
 
 func newChallenge(db *gorm.DB, userID uuid.UUID, deviceID, path string, ttl time.Duration) (string, error) {

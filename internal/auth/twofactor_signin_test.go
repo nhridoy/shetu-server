@@ -291,6 +291,10 @@ func TestTwoFactor_AccountLockoutAfterManyWrongCodes(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests || errCode(w.Body.Bytes()) != "TWO_FACTOR_LOCKED" {
 		t.Fatalf("want 429 TWO_FACTOR_LOCKED, got %d %s", w.Code, w.Body.String())
 	}
+	// Guesses count for up to 30 minutes (window + challenge lifetime); the message says so.
+	if !bytes.Contains(w.Body.Bytes(), []byte("Try again in 30 minutes.")) {
+		t.Fatalf("lockout message: %s", w.Body.String())
+	}
 	// An hour-old burst no longer counts.
 	db.Model(&models.TwoFactorChallenge{}).Where("user_id = ?", uid).Update("created_at", time.Now().Add(-time.Hour))
 	challengeOf(t, loginRaw(t, r, db, "lockout@example.com", verifier, uuid.NewString()))
@@ -368,8 +372,13 @@ func TestTwoFactor_OAuthSetupRaceCannotOverwriteASetUpAccount(t *testing.T) {
 	if !fired {
 		t.Fatal("race hook never ran")
 	}
-	if w.Code == http.StatusOK || bytes.Contains(w.Body.Bytes(), []byte("access_token")) {
-		t.Fatalf("setup on an already set-up account issued a session: %d %s", w.Code, w.Body.String())
+	if w.Code != http.StatusConflict || errCode(w.Body.Bytes()) != "ALREADY_INITIALIZED" || bytes.Contains(w.Body.Bytes(), []byte("access_token")) {
+		t.Fatalf("want 409 ALREADY_INITIALIZED without a session, got %d %s", w.Code, w.Body.String())
+	}
+	var tokens int64
+	db.Model(&models.RefreshToken{}).Where("user_id = ?", uid).Count(&tokens)
+	if tokens != 0 {
+		t.Fatalf("refresh token issued to the losing setup: %d", tokens)
 	}
 	var user models.User
 	db.First(&user, "id = ?", uid)
@@ -395,5 +404,41 @@ func TestTwoFactor_AccountLimitCoversAChallengesWholeLife(t *testing.T) {
 	w := loginRaw(t, r, db, "window@example.com", verifier, uuid.NewString())
 	if errCode(w.Body.Bytes()) != "TWO_FACTOR_LOCKED" {
 		t.Fatalf("guesses on older challenges dropped out of the limit: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTwoFactor_AccountLimitHoldsUnderConcurrentGuesses(t *testing.T) {
+	db := setupTestDB(t)
+	// :memory: sqlite gives each new connection an empty database; share one.
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, _ := seedRecoverable(t, db, "parallel@example.com")
+	seedTwoFactor(t, db, cfg, uid)
+	var chs []string
+	for i := 0; i < 6; i++ {
+		chs = append(chs, challengeOf(t, prefetchRaw(r)))
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	checked := 0
+	for _, ch := range chs {
+		for j := 0; j < 5; j++ {
+			wg.Add(1)
+			go func(ch string) {
+				defer wg.Done()
+				if errCode(verifyCode(r, ch, "000000", "totp").Body.Bytes()) == "TWO_FACTOR_INVALID" {
+					mu.Lock()
+					checked++
+					mu.Unlock()
+				}
+			}(ch)
+		}
+	}
+	wg.Wait()
+	if checked > 20 {
+		t.Fatalf("%d of 30 concurrent guesses were checked, the account limit is 20", checked)
 	}
 }

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -30,11 +32,13 @@ type Config struct {
 	CORSAllowedOrigins       []string
 	RequireEmailVerification bool
 	LogOtpFallback           bool
-	SMTPHost                 string
-	SMTPPort                 int
-	SMTPUsername             string
-	SMTPPassword             string
-	SMTPFrom                 string
+	// TwoFactorKey seals authenticator secrets (TWO_FACTOR_KEY, 32 bytes base64); nil = unavailable.
+	TwoFactorKey []byte
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 func Load() *Config {
@@ -74,6 +78,7 @@ func Load() *Config {
 
 	cfg.RequireEmailVerification = parseBoolEnv("REQUIRE_EMAIL_VERIFICATION", false)
 	cfg.LogOtpFallback = parseBoolEnv("LOG_OTP_FALLBACK", false)
+	cfg.TwoFactorKey = parseTwoFactorKey(os.Getenv("TWO_FACTOR_KEY"))
 	cfg.SMTPHost = os.Getenv("SMTP_HOST")
 	cfg.SMTPPort = 587
 	if v := os.Getenv("SMTP_PORT"); v != "" {
@@ -158,4 +163,17 @@ func parseBoolEnv(key string, fallback bool) bool {
 		return false
 	}
 	return fallback
+}
+
+// parseTwoFactorKey returns the 32-byte key, or nil (two-factor unavailable) when unset or invalid.
+func parseTwoFactorKey(value string) []byte {
+	if value == "" {
+		return nil
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil || len(key) != 32 {
+		slog.Warn("TWO_FACTOR_KEY must be 32 bytes, base64; two-factor sign-in is unavailable")
+		return nil
+	}
+	return key
 }

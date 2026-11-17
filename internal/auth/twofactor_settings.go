@@ -21,6 +21,7 @@ const twoFactorSetupPurpose = "two_factor_setup"
 var (
 	errTwoFactorUnavailable = errors.New("two-factor unavailable")
 	errTwoFactorEnabled     = errors.New("two-factor already on")
+	errEmailCodeExpired     = errors.New("email code expired")
 )
 
 // savePendingSecret stores a setup's pending secret. It only touches a row still in setup
@@ -68,6 +69,8 @@ func writeCodeError(c *gin.Context, err error) {
 		Error(c, http.StatusBadRequest, "TWO_FACTOR_CODE_REUSED", "This code was just used. Wait for the next code.")
 	case errors.Is(err, errCodeInvalid):
 		Error(c, http.StatusBadRequest, "TWO_FACTOR_INVALID", "That code isn't right.")
+	case errors.Is(err, errEmailCodeExpired):
+		Error(c, http.StatusBadRequest, "TWO_FACTOR_CODE_EXPIRED", "That code has expired. Send a new one.")
 	case errors.Is(err, errTwoFactorUnavailable):
 		Error(c, http.StatusServiceUnavailable, "TWO_FACTOR_UNAVAILABLE", "Two-factor isn't available on this server.")
 	default:
@@ -127,13 +130,14 @@ func isDigits(s string) bool {
 func consumeEmailCode(db *gorm.DB, userID uuid.UUID, purpose, code string) error {
 	var row models.AuthCode
 	err := db.Where("user_id = ? AND purpose = ? AND used_at IS NULL", userID, purpose).Order("created_at DESC").First(&row).Error
+	// No code, an expired one or one out of tries: the person needs a new code (not a guess).
 	if err != nil || row.ExpiresAt.Before(time.Now()) {
-		return errCodeInvalid
+		return errEmailCodeExpired
 	}
 	// Reserve the attempt before comparing, so parallel guesses can't exceed the limit.
 	res := db.Model(&models.AuthCode{}).Where("id = ? AND attempts < ?", row.ID, maxOtpAttempts).Update("attempts", gorm.Expr("attempts + 1"))
 	if res.Error != nil || res.RowsAffected == 0 {
-		return errCodeInvalid
+		return errEmailCodeExpired
 	}
 	sum := sha256.Sum256([]byte(normalizeCode(code)))
 	if !ConstantTimeCompare([]byte(base64.RawStdEncoding.EncodeToString(sum[:])), []byte(row.CodeHash)) {

@@ -75,15 +75,24 @@ func TestEvents_NewDeviceIsPerAccount(t *testing.T) {
 	}
 }
 
-func TestEvents_NoDeviceIdIsNeverNew(t *testing.T) {
+func TestEvents_MissingDeviceIdOnAKnownAccountIsNew(t *testing.T) {
 	db := setupTestDB(t)
 	sent := captureNotices(t)
 	r := setupHandlerRouter(db, testConfig())
 	uid, verifier := seedUserWithVerifier(t, db, "nodev@example.com")
-	loginWithDevice(t, r, db, "nodev@example.com", verifier, uuid.NewString())
+	// An account's first sign-in without an id (older app) is not an alert.
 	loginWithDevice(t, r, db, "nodev@example.com", verifier, "")
-	if k := kinds(eventRows(t, db, uid)); len(k) != 2 || k[1] != "sign_in" || len(*sent) != 0 {
-		t.Fatalf("no device id: %v emails %+v", k, *sent)
+	if k := kinds(eventRows(t, db, uid)); len(k) != 1 || k[0] != "sign_in" || len(*sent) != 0 {
+		t.Fatalf("first sign-in without id: %v emails %+v", k, *sent)
+	}
+	loginWithDevice(t, r, db, "nodev@example.com", verifier, uuid.NewString())
+	*sent = nil
+	// Leaving out the device id must not dodge the alert once the account has devices.
+	loginWithDevice(t, r, db, "nodev@example.com", verifier, "")
+	loginWithDevice(t, r, db, "nodev@example.com", verifier, "not-a-uuid")
+	k := kinds(eventRows(t, db, uid))
+	if k[len(k)-1] != "sign_in_new_device" || k[len(k)-2] != "sign_in_new_device" || len(*sent) != 2 {
+		t.Fatalf("missing/invalid id on a known account: %v emails %+v", k, *sent)
 	}
 }
 
@@ -195,5 +204,55 @@ func TestEvents_RecordingFailureNeverBlocks(t *testing.T) {
 	access, _ := loginWithDevice(t, r, db, "noblock@example.com", verifier, uuid.NewString())
 	if access == "" {
 		t.Fatal("sign-in failed because the event could not be recorded")
+	}
+}
+
+func TestEvents_OwnReusedCodeIsNotAnAlarm(t *testing.T) {
+	db := setupTestDB(t)
+	sent := captureNotices(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	now := pinClock(t, time.Unix(1_800_000_000, 0))
+	uid, verifier := seedRecoverable(t, db, "reuse-ev@example.com")
+	secret, _ := seedTwoFactor(t, db, cfg, uid)
+	code, _ := totp.GenerateCode(secret, *now)
+	verifyCode(r, challengeOf(t, prefetchRaw(r)), code, "totp")
+	// The same person signs in right after, within the same 30 seconds.
+	ch := challengeOf(t, loginRaw(t, r, db, "reuse-ev@example.com", verifier, uuid.NewString()))
+	if w := verifyCode(r, ch, code, "totp"); errCode(w.Body.Bytes()) != "TWO_FACTOR_CODE_REUSED" {
+		t.Fatalf("want reused, got %s", w.Body.String())
+	}
+	for _, e := range eventRows(t, db, uid) {
+		if e.Kind == "two_factor_failed" {
+			t.Fatalf("a replayed own code was recorded as a wrong code: %+v", e)
+		}
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("alarm emails: %+v", *sent)
+	}
+}
+
+func TestEvents_LateEmailedCodeIsNotAnAlarm(t *testing.T) {
+	db := setupTestDB(t)
+	sent := captureNotices(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	codes := captureOtps(t)
+	uid, _ := seedRecoverable(t, db, "late-ev@example.com")
+	seedTwoFactor(t, db, cfg, uid)
+	ch := challengeOf(t, prefetchRaw(r))
+	postJSONTo(r, "/api/v1/auth/two-factor/email", gin.H{"challenge": ch}, "")
+	db.Model(&models.AuthCode{}).Where("user_id = ?", uid).Update("expires_at", time.Now().Add(-time.Second))
+	w := verifyCode(r, ch, codes["late-ev@example.com"], "email")
+	if errCode(w.Body.Bytes()) != "TWO_FACTOR_CODE_EXPIRED" {
+		t.Fatalf("want TWO_FACTOR_CODE_EXPIRED, got %d %s", w.Code, w.Body.String())
+	}
+	for _, e := range eventRows(t, db, uid) {
+		if e.Kind == "two_factor_failed" {
+			t.Fatalf("an expired emailed code was recorded as a wrong code: %+v", e)
+		}
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("alarm emails: %+v", *sent)
 	}
 }

@@ -364,10 +364,11 @@ func takeRecoveryProof(db *gorm.DB, userID uuid.UUID, token string) (*models.Two
 	return &proof, true
 }
 
-// codeRefused answers a refused code; a wrong or replayed code is a security event (the email
-// wording follows how the person got this far: login, oauth or recovery).
+// codeRefused answers a refused code; only a wrong code is a security event (the email wording
+// follows how the person got this far: login, oauth or recovery). A code replayed in the same
+// 30 seconds or an expired emailed code is the owner's own timing, not a guess.
 func codeRefused(c *gin.Context, db *gorm.DB, cfg *config.Config, ch *models.TwoFactorChallenge, err error) {
-	if errors.Is(err, errCodeInvalid) || errors.Is(err, errCodeReused) {
+	if errors.Is(err, errCodeInvalid) {
 		recordEvent(c, db, cfg, ch.UserID, eventKindTwoFAFail, "", ch.Path)
 	}
 	writeCodeError(c, err)

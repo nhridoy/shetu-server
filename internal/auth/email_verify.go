@@ -26,7 +26,12 @@ func generateOtp() (string, error) {
 }
 
 func issueEmailVerifyCode(db *gorm.DB, userID uuid.UUID) (string, error) {
-	if err := db.Where("user_id = ? AND purpose = ?", userID, emailVerifyPurpose).
+	return issueEmailCode(db, userID, emailVerifyPurpose)
+}
+
+// issueEmailCode replaces the user's code for purpose with a fresh 6-digit one.
+func issueEmailCode(db *gorm.DB, userID uuid.UUID, purpose string) (string, error) {
+	if err := db.Where("user_id = ? AND purpose = ?", userID, purpose).
 		Delete(&models.AuthCode{}).Error; err != nil {
 		return "", fmt.Errorf("clear old verification codes: %w", err)
 	}
@@ -38,7 +43,7 @@ func issueEmailVerifyCode(db *gorm.DB, userID uuid.UUID) (string, error) {
 	hash := sha256.Sum256([]byte(otp))
 	code := models.AuthCode{
 		CodeHash:  base64.RawStdEncoding.EncodeToString(hash[:]),
-		Purpose:   emailVerifyPurpose,
+		Purpose:   purpose,
 		UserID:    userID,
 		DeviceID:  "",
 		ExpiresAt: time.Now().Add(otpTTL),

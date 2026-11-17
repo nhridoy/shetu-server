@@ -393,3 +393,24 @@ func TestCORS_DisallowedOrigin_Rejected(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimit_NestedSameLimitDoesNotDeadlock(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	g := r.Group("/", RateLimit(97))
+	g.GET("/x", RateLimit(97), func(c *gin.Context) { c.Status(http.StatusOK) })
+	done := make(chan int, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/x", nil))
+		done <- w.Code
+	}()
+	select {
+	case code := <-done:
+		if code != http.StatusOK {
+			t.Fatalf("status %d", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("nested limiters with the same limit deadlocked")
+	}
+}

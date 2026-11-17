@@ -46,6 +46,8 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	auth.POST("/recovery", HandleRecovery(db, cfg))
 	auth.POST("/recovery/prefetch", HandleRecoveryPrefetch(db))
 	auth.POST("/account-status", HandleAccountStatus(db))
+	auth.POST("/two-factor", HandleTwoFactorVerify(db, cfg))
+	auth.POST("/two-factor/email", HandleTwoFactorEmail(db, cfg))
 
 	protected := r.Group("/api/v1")
 	protected.Use(JWTMiddleware(cfg, db), DeletionGate(db))
@@ -61,6 +63,11 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	protected.PATCH("/me/devices/:device_id", HandleRenameDevice(db))
 	protected.DELETE("/me/devices/:device_id", HandleRevokeDevice(db))
 	protected.POST("/me/devices/revoke-others", HandleRevokeOtherDevices(db))
+	protected.GET("/me/two-factor", HandleTwoFactorStatus(db, cfg))
+	protected.POST("/me/two-factor/setup", HandleTwoFactorSetup(db, cfg))
+	protected.POST("/me/two-factor/confirm", HandleTwoFactorConfirm(db, cfg))
+	protected.POST("/me/two-factor/disable", HandleTwoFactorDisable(db, cfg))
+	protected.POST("/me/two-factor/backup-codes", HandleTwoFactorBackupCodes(db, cfg))
 	return r
 }
 

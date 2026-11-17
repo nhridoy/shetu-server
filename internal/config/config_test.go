@@ -156,3 +156,14 @@ func clearIdentityEnv(t *testing.T) {
 		t.Setenv(key, "")
 	}
 }
+
+func TestConfigTwoFactorKey(t *testing.T) {
+	valid := "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=" // 32 bytes of 0x01
+	for value, wantLen := range map[string]int{"": 0, "not base64!": 0, "AQID": 0, valid: 32} {
+		t.Setenv("TWO_FACTOR_KEY", value)
+		if got := len(Load().TwoFactorKey); got != wantLen {
+			t.Fatalf("%q: key length %d, want %d", value, got, wantLen)
+		}
+	}
+	os.Unsetenv("TWO_FACTOR_KEY")
+}

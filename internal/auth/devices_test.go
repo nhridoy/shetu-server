@@ -392,3 +392,20 @@ func TestDevice_ReportDoesNotOverwriteARename(t *testing.T) {
 		}
 	}
 }
+
+func TestDevice_LookupFailureStopsRequests(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "fail@example.com")
+	access, refresh := loginWithDevice(t, r, db, "fail@example.com", verifier, uuid.NewString())
+	// The revoked-device lookup can't run: requests must not pass as "not revoked".
+	if err := db.Migrator().DropTable(&models.Device{}); err != nil {
+		t.Fatal(err)
+	}
+	if w := doJSON(r, http.MethodGet, "/api/v1/test-protected", nil, access); w.Code != http.StatusInternalServerError {
+		t.Fatalf("protected: want 500, got %d %s", w.Code, w.Body.String())
+	}
+	if w := postJSONTo(r, "/api/v1/auth/refresh", gin.H{"refresh_token": refresh}, ""); w.Code != http.StatusInternalServerError {
+		t.Fatalf("refresh: want 500, got %d %s", w.Code, w.Body.String())
+	}
+}

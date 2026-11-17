@@ -373,7 +373,12 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 
 		// A device signed out from another one: refuse, but this is not token theft, so don't
 		// treat its revoked token as reuse (that would sign out every device, the revoker too).
-		if deviceRevoked(db, rt.UserID, rt.DeviceID) {
+		revoked, err := deviceRevoked(db, rt.UserID, rt.DeviceID)
+		if err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check device")
+			return
+		}
+		if revoked {
 			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "this device was signed out")
 			return
 		}

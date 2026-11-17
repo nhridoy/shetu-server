@@ -46,15 +46,17 @@ func recordDevice(db *gorm.DB, userID uuid.UUID, deviceID string, freshSignIn bo
 }
 
 // deviceRevoked reports whether the user's device has been signed out remotely.
-func deviceRevoked(db *gorm.DB, userID uuid.UUID, deviceID string) bool {
+// deviceRevoked reports whether the device was signed out. A lookup error is returned, never
+// read as "not revoked".
+func deviceRevoked(db *gorm.DB, userID uuid.UUID, deviceID string) (bool, error) {
 	if !validDeviceID(deviceID) {
-		return false
+		return false, nil
 	}
 	var n int64
-	db.Model(&models.Device{}).
+	err := db.Model(&models.Device{}).
 		Where("user_id = ? AND device_id = ? AND revoked_at IS NOT NULL", userID, deviceID).
-		Count(&n)
-	return n > 0
+		Count(&n).Error
+	return n > 0, err
 }
 
 const deviceFieldMax = 100

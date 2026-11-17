@@ -111,7 +111,8 @@ func HandleAccountStatus(db *gorm.DB) gin.HandlerFunc {
 		}
 		data := gin.H{"status": status}
 		// A device signed out from another one erases its local data when it sees this.
-		if deviceRevoked(db, id, req.DeviceID) {
+		// A failed lookup adds nothing: the client never wipes on doubt.
+		if revoked, err := deviceRevoked(db, id, req.DeviceID); err == nil && revoked {
 			data["device_revoked"] = true
 		}
 		if at != nil {

@@ -99,6 +99,10 @@ func JWTMiddleware(cfg *config.Config, db *gorm.DB) gin.HandlerFunc {
 
 		c.Set("user_id", userID)
 		c.Set("device_id", claims.DeviceID)
+		if claims.ExpiresAt != nil {
+			// The live stream ends with the token, so a signed-out session can't keep listening.
+			c.Set("token_exp", claims.ExpiresAt.Time)
+		}
 		c.Next()
 	}
 }

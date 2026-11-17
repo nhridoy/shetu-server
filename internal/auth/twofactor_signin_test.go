@@ -423,22 +423,23 @@ func TestTwoFactor_AccountLimitHoldsUnderConcurrentGuesses(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	checked := 0
+	got := map[string]int{}
 	for _, ch := range chs {
 		for j := 0; j < 5; j++ {
 			wg.Add(1)
 			go func(ch string) {
 				defer wg.Done()
-				if errCode(verifyCode(r, ch, "000000", "totp").Body.Bytes()) == "TWO_FACTOR_INVALID" {
-					mu.Lock()
-					checked++
-					mu.Unlock()
-				}
+				// Never a valid code: not 6 digits, and no backup code is "zzzz-zzzz".
+				code := errCode(verifyCode(r, ch, "zzzz-zzzz", "backup").Body.Bytes())
+				mu.Lock()
+				got[code]++
+				mu.Unlock()
 			}(ch)
 		}
 	}
 	wg.Wait()
-	if checked > 20 {
-		t.Fatalf("%d of 30 concurrent guesses were checked, the account limit is 20", checked)
+	checked, locked := got["TWO_FACTOR_INVALID"], got["TWO_FACTOR_LOCKED"]
+	if checked+locked != 30 || checked > 20 || checked == 0 {
+		t.Fatalf("want every guess checked or locked with at most 20 checked, got %v", got)
 	}
 }

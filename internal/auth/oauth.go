@@ -635,20 +635,37 @@ func HandleOAuthSetup(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		now := time.Now()
-		db.Model(&ac).Update("used_at", &now)
+		if res := db.Model(&models.AuthCode{}).Where("id = ? AND used_at IS NULL", ac.ID).Update("used_at", &now); res.Error != nil || res.RowsAffected == 0 {
+			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "setup code already used")
+			return
+		}
 
-		user.AuthVerifier = &req.AuthVerifier
-		user.AuthSalt = &req.ServerSalt
-		user.SaltCL = &req.SaltCL
-		user.KDFM = req.KDF.M
-		user.KDFT = req.KDF.T
-		user.KDFP = req.KDF.P
-		user.PublicKey = publicKey
-		user.RecoveryHash = recoveryHash
-		user.Initialized = true
-		user.UpdatedAt = now
-		if err := db.Save(&user).Error; err != nil {
+		// Only an account still not set up moves to set up: a concurrent setup that already
+		// finished (and may have turned two-factor on) is never overwritten or given tokens.
+		res := db.Model(&models.User{}).Where("id = ? AND initialized = ?", user.ID, false).
+			Select("AuthVerifier", "AuthSalt", "SaltCL", "KDFM", "KDFT", "KDFP", "PublicKey", "RecoveryHash", "Initialized", "UpdatedAt").
+			Updates(models.User{
+				AuthVerifier: &req.AuthVerifier,
+				AuthSalt:     &req.ServerSalt,
+				SaltCL:       &req.SaltCL,
+				KDFM:         req.KDF.M,
+				KDFT:         req.KDF.T,
+				KDFP:         req.KDF.P,
+				PublicKey:    publicKey,
+				RecoveryHash: recoveryHash,
+				Initialized:  true,
+				UpdatedAt:    now,
+			})
+		if res.Error != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update user")
+			return
+		}
+		if res.RowsAffected == 0 {
+			Error(c, http.StatusConflict, "ALREADY_INITIALIZED", "user already initialized")
+			return
+		}
+		if err := db.First(&user, "id = ?", user.ID).Error; err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load user")
 			return
 		}
 

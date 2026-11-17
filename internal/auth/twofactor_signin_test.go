@@ -338,3 +338,62 @@ func TestTwoFactor_AccountLimitCountsEveryGuess(t *testing.T) {
 		t.Fatalf("want 20 checked and 5 locked, got %d checked %d locked", invalid, locked)
 	}
 }
+
+func TestTwoFactor_OAuthSetupRaceCannotOverwriteASetUpAccount(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := twoFactorConfig()
+	r := oauthRouter(db, cfg)
+	uid := seedOAuthUser(t, db, "google", "race-sub", "setuprace@example.com", false)
+	seedAuthCode(t, db, "race-setup-token", "oauth_setup", uid, "dev1", time.Now().Add(15*time.Minute), nil)
+	// Another request finishes setup (and turns two-factor on) right after this one reads the user.
+	fired := false
+	if err := db.Callback().Query().After("gorm:query").Register("test:finish-setup", func(tx *gorm.DB) {
+		if fired || tx.Statement.Table != "users" {
+			return
+		}
+		fired = true
+		tx.Session(&gorm.Session{NewDB: true, SkipHooks: true}).Exec("UPDATE users SET initialized = ?, auth_verifier = ? WHERE id = ?", true, "winner", uid)
+		seedTwoFactor(t, tx.Session(&gorm.Session{NewDB: true}), cfg, uid)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := postJSONTo(r, "/api/v1/auth/oauth/setup", gin.H{
+		"setup_token":   "race-setup-token",
+		"auth_verifier": "loser",
+		"keyring":       gin.H{"dek_wrapped_by_kek": "a", "dek_wrapped_by_recovery": "b", "private_key_wrapped_by_dek": "c"},
+		"kdf":           gin.H{"m": 65536, "t": 3, "p": 2},
+		"server_salt":   "s",
+		"salt_cl":       "c",
+	}, "")
+	if !fired {
+		t.Fatal("race hook never ran")
+	}
+	if w.Code == http.StatusOK || bytes.Contains(w.Body.Bytes(), []byte("access_token")) {
+		t.Fatalf("setup on an already set-up account issued a session: %d %s", w.Code, w.Body.String())
+	}
+	var user models.User
+	db.First(&user, "id = ?", uid)
+	if user.AuthVerifier == nil || *user.AuthVerifier != "winner" {
+		t.Fatalf("setup data overwritten: %v", user.AuthVerifier)
+	}
+}
+
+func TestTwoFactor_AccountLimitCoversAChallengesWholeLife(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, verifier := seedRecoverable(t, db, "window@example.com")
+	seedTwoFactor(t, db, cfg, uid)
+	// 20 guesses made just now, on recovery challenges dated 16 minutes back.
+	for i := 0; i < 4; i++ {
+		ch := challengeOf(t, prefetchRaw(r))
+		for j := 0; j < 5; j++ {
+			verifyCode(r, ch, "000000", "totp")
+		}
+	}
+	db.Model(&models.TwoFactorChallenge{}).Where("user_id = ?", uid).Update("created_at", time.Now().Add(-16*time.Minute))
+	w := loginRaw(t, r, db, "window@example.com", verifier, uuid.NewString())
+	if errCode(w.Body.Bytes()) != "TWO_FACTOR_LOCKED" {
+		t.Fatalf("guesses on older challenges dropped out of the limit: %d %s", w.Code, w.Body.String())
+	}
+}

@@ -43,11 +43,14 @@ func twoFactorOn(db *gorm.DB, userID uuid.UUID) (*models.TwoFactor, bool, error)
 	return tf, true, nil
 }
 
-// accountAttempts sums the user's recent second-factor guesses across all challenges.
+// accountAttempts sums the user's recent second-factor guesses across all challenges. A
+// challenge takes guesses until it expires, so any guess in the window belongs to one
+// created up to a challenge lifetime before it: look back that much further.
 func accountAttempts(db *gorm.DB, userID uuid.UUID) (int64, error) {
 	var recent int64
+	since := time.Now().Add(-accountAttemptWindow - recoveryChallengeTTL)
 	err := db.Model(&models.TwoFactorChallenge{}).
-		Where("user_id = ? AND path IN ? AND created_at > ?", userID, []string{challengeLogin, challengeOAuth, challengeRecovery}, time.Now().Add(-accountAttemptWindow)).
+		Where("user_id = ? AND path IN ? AND created_at > ?", userID, []string{challengeLogin, challengeOAuth, challengeRecovery}, since).
 		Select("COALESCE(SUM(attempts), 0)").Scan(&recent).Error
 	return recent, err
 }

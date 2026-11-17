@@ -221,7 +221,7 @@ func HandleRegister(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		recordDevice(db, userID, req.DeviceID, true)
+		recordSignIn(c, db, cfg, userID, req.DeviceID, "password")
 		rt, err := createRefreshToken(db, userID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -310,6 +310,7 @@ func HandleLogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 
 		expectedProof := GenerateProof(verifierBytes, nonceBytes)
 		if !ConstantTimeCompare(proofBytes, expectedProof) {
+			recordEvent(c, db, cfg, user.ID, "sign_in_failed", "", "")
 			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials")
 			return
 		}
@@ -327,7 +328,7 @@ func HandleLogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		if gateTwoFactor(c, db, user.ID, req.DeviceID, challengeLogin, challengeTTL) {
 			return
 		}
-		issueSignIn(c, db, cfg, user, req.DeviceID)
+		issueSignIn(c, db, cfg, user, req.DeviceID, "password")
 	}
 }
 
@@ -942,7 +943,7 @@ func HandleVerifyEmail(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		recordDevice(db, user.ID, req.DeviceID, true)
+		recordSignIn(c, db, cfg, user.ID, req.DeviceID, "password")
 		rt, err := createRefreshToken(db, user.ID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")

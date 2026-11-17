@@ -157,3 +157,19 @@ func HandleListSecurityEvents(db *gorm.DB) gin.HandlerFunc {
 		Success(c, http.StatusOK, gin.H{"events": events, "next": next})
 	}
 }
+
+// recordSignIn records a fresh sign-in: it notes whether this device is new to the account
+// (an account's very first device is not "new": no alarm on sign-up), then records the device.
+func recordSignIn(c *gin.Context, db *gorm.DB, cfg *config.Config, userID uuid.UUID, deviceID, method string) {
+	kind := "sign_in"
+	if validDeviceID(deviceID) {
+		var devices, known int64
+		db.Model(&models.Device{}).Where("user_id = ?", userID).Count(&devices)
+		db.Model(&models.Device{}).Where("user_id = ? AND device_id = ?", userID, deviceID).Count(&known)
+		if devices > 0 && known == 0 {
+			kind = "sign_in_new_device"
+		}
+	}
+	recordDevice(db, userID, deviceID, true)
+	recordEvent(c, db, cfg, userID, kind, deviceID, method)
+}

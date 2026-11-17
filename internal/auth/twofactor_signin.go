@@ -123,11 +123,11 @@ func challengeExpired(c *gin.Context) {
 }
 
 // issueSignIn finishes a sign-in: records the device and answers with tokens, user and keyring.
-func issueSignIn(c *gin.Context, db *gorm.DB, cfg *config.Config, user models.User, deviceID string) {
+func issueSignIn(c *gin.Context, db *gorm.DB, cfg *config.Config, user models.User, deviceID, method string) {
 	now := time.Now()
 	db.Model(&user).Update("last_login_at", &now)
 
-	recordDevice(db, user.ID, deviceID, true)
+	recordSignIn(c, db, cfg, user.ID, deviceID, method)
 	rtToken, err := createRefreshToken(db, user.ID, deviceID, cfg)
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -218,11 +218,11 @@ func HandleTwoFactorVerify(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				return
 			}
 			if err := consumeEmailCode(db, ch.UserID, twoFactorRecoveryPurpose, req.Code); err != nil {
-				writeCodeError(c, err)
+				codeRefused(c, db, cfg, ch, err)
 				return
 			}
 		} else if _, err := verifySecondFactor(db, cfg, tf, req.Code); err != nil {
-			writeCodeError(c, err)
+			codeRefused(c, db, cfg, ch, err)
 			return
 		}
 		if !markUsed(db, ch.ID) {
@@ -238,7 +238,11 @@ func HandleTwoFactorVerify(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			finishRecoveryChallenge(c, db, user, viaEmail)
 			return
 		}
-		issueSignIn(c, db, cfg, user, ch.DeviceID)
+		method := "password"
+		if ch.Path == challengeOAuth {
+			method = user.AuthProvider
+		}
+		issueSignIn(c, db, cfg, user, ch.DeviceID, method)
 	}
 }
 
@@ -305,7 +309,7 @@ func finishOAuthCallback(c *gin.Context, db *gorm.DB, cfg *config.Config, state 
 		return
 	}
 
-	recordDevice(db, user.ID, state.DeviceID, true)
+	recordSignIn(c, db, cfg, user.ID, state.DeviceID, user.AuthProvider)
 	rt, err := createRefreshToken(db, user.ID, state.DeviceID, cfg)
 	if err != nil {
 		c.Redirect(http.StatusFound, oauthTargetURL(state, cfg, "error", url.Values{"message": []string{"token_generation_failed"}}))
@@ -356,4 +360,13 @@ func takeRecoveryProof(db *gorm.DB, userID uuid.UUID, token string) (*models.Two
 		return nil, false
 	}
 	return &proof, true
+}
+
+// codeRefused answers a refused code; a wrong or replayed code is a security event (the email
+// wording follows how the person got this far: login, oauth or recovery).
+func codeRefused(c *gin.Context, db *gorm.DB, cfg *config.Config, ch *models.TwoFactorChallenge, err error) {
+	if errors.Is(err, errCodeInvalid) || errors.Is(err, errCodeReused) {
+		recordEvent(c, db, cfg, ch.UserID, eventKindTwoFAFail, "", ch.Path)
+	}
+	writeCodeError(c, err)
 }

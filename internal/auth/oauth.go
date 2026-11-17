@@ -542,7 +542,7 @@ func HandleOAuthExchange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		recordDevice(db, userID, ac.DeviceID, true)
+		recordSignIn(c, db, cfg, userID, ac.DeviceID, user.AuthProvider)
 		rt, err := createRefreshToken(db, userID, ac.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -676,7 +676,7 @@ func HandleOAuthSetup(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		recordDevice(db, user.ID, ac.DeviceID, true)
+		recordSignIn(c, db, cfg, user.ID, ac.DeviceID, user.AuthProvider)
 		rt, err := createRefreshToken(db, user.ID, ac.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")

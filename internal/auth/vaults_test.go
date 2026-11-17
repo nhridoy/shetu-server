@@ -23,7 +23,7 @@ func TestDefaultVaultIsScopedAndReused(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	protected := router.Group("/api/v1")
-	protected.Use(JWTMiddleware(cfg))
+	protected.Use(JWTMiddleware(cfg, nil))
 	protected.GET("/vaults/default", HandleDefaultVault(db))
 
 	request := func(user uuid.UUID) (int, map[string]any) {

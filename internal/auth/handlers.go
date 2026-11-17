@@ -221,6 +221,7 @@ func HandleRegister(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		recordDevice(db, userID, req.DeviceID, true)
 		rt, err := createRefreshToken(db, userID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -326,6 +327,7 @@ func HandleLogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		now := time.Now()
 		db.Model(&user).Update("last_login_at", &now)
 
+		recordDevice(db, user.ID, req.DeviceID, true)
 		rtToken, err := createRefreshToken(db, user.ID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -369,6 +371,18 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// A device signed out from another one: refuse, but this is not token theft, so don't
+		// treat its revoked token as reuse (that would sign out every device, the revoker too).
+		revoked, err := deviceRevoked(db, rt.UserID, rt.DeviceID)
+		if err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check device")
+			return
+		}
+		if revoked {
+			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "this device was signed out")
+			return
+		}
+
 		if rt.RevokedAt != nil {
 			db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked_at IS NULL", rt.UserID).
 				Update("revoked_at", time.Now())
@@ -387,6 +401,7 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			"rotated_at": &now,
 		})
 
+		recordDevice(db, rt.UserID, rt.DeviceID, false)
 		newRT, err := createRefreshToken(db, rt.UserID, rt.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -909,6 +924,7 @@ func HandleVerifyEmail(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		recordDevice(db, user.ID, req.DeviceID, true)
 		rt, err := createRefreshToken(db, user.ID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")

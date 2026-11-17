@@ -48,7 +48,7 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	auth.POST("/account-status", HandleAccountStatus(db))
 
 	protected := r.Group("/api/v1")
-	protected.Use(JWTMiddleware(cfg), DeletionGate(db))
+	protected.Use(JWTMiddleware(cfg, db), DeletionGate(db))
 	protected.GET("/test-protected", func(c *gin.Context) { c.Status(http.StatusOK) })
 	protected.GET("/me", HandleMe(db))
 	protected.GET("/auth/keyring", HandleKeyring(db))
@@ -56,6 +56,11 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	protected.POST("/auth/recovery-material", HandleAttachRecoveryMaterial(db, cfg))
 	protected.POST("/me/deletion", HandleRequestDeletion(db, cfg))
 	protected.DELETE("/me/deletion", HandleCancelDeletion(db))
+	protected.GET("/me/devices", HandleListDevices(db))
+	protected.PUT("/me/devices/current", HandleUpdateCurrentDevice(db))
+	protected.PATCH("/me/devices/:device_id", HandleRenameDevice(db))
+	protected.DELETE("/me/devices/:device_id", HandleRevokeDevice(db))
+	protected.POST("/me/devices/revoke-others", HandleRevokeOtherDevices(db))
 	return r
 }
 

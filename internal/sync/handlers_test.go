@@ -39,7 +39,7 @@ func syncTestServer(t *testing.T) (*gorm.DB, *gin.Engine, *config.Config, uuid.U
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	protected := router.Group("/api/v1")
-	protected.Use(auth.JWTMiddleware(cfg))
+	protected.Use(auth.JWTMiddleware(cfg, nil))
 	protected.POST("/sync/push", HandlePush(db))
 	protected.POST("/sync/pull", HandlePull(db))
 	return db, router, cfg, owner, other, vaultID

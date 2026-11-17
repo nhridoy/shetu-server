@@ -128,6 +128,7 @@ func seedRichUser(t *testing.T, db *gorm.DB, at time.Time) seeded {
 
 		// Credentials.
 		&models.RefreshToken{UserID: s.user, TokenHash: "rt", DeviceID: "d", ExpiresAt: at.Add(time.Hour)},
+		&models.Device{UserID: s.user, DeviceID: "11111111-1111-1111-1111-111111111111", Name: "Alice's MacBook", LastSeenAt: at},
 		&models.UserKey{UserID: s.user, KeyType: "identity", Payload: "p"},
 		&models.AuthCode{CodeHash: "ac", Purpose: "verify", UserID: s.user, DeviceID: "d", ExpiresAt: at.Add(time.Hour)},
 		&models.LoginNonce{Email: goneEmail, NonceHash: "n1", ExpiresAt: at.Add(time.Hour)},
@@ -176,6 +177,7 @@ func TestPurgeRemovesEverything(t *testing.T) {
 		{"users", "id = ?", []any{s.user}},
 		{"user_keys", "user_id = ?", []any{s.user}},
 		{"refresh_tokens", "user_id = ?", []any{s.user}},
+		{"devices", "user_id = ?", []any{s.user}},
 		{"auth_codes", "user_id = ?", []any{s.user}},
 		{"login_nonces", "email = ?", []any{goneEmail}},
 		{"team_sync_operations", "user_id = ?", []any{s.user}},

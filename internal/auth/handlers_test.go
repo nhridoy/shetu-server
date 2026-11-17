@@ -61,6 +61,11 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	protected.PATCH("/me/devices/:device_id", HandleRenameDevice(db))
 	protected.DELETE("/me/devices/:device_id", HandleRevokeDevice(db))
 	protected.POST("/me/devices/revoke-others", HandleRevokeOtherDevices(db))
+	protected.GET("/me/two-factor", HandleTwoFactorStatus(db, cfg))
+	protected.POST("/me/two-factor/setup", HandleTwoFactorSetup(db, cfg))
+	protected.POST("/me/two-factor/confirm", HandleTwoFactorConfirm(db, cfg))
+	protected.POST("/me/two-factor/disable", HandleTwoFactorDisable(db, cfg))
+	protected.POST("/me/two-factor/backup-codes", HandleTwoFactorBackupCodes(db, cfg))
 	return r
 }
 

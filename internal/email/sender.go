@@ -127,3 +127,27 @@ func (s *Sender) SendAccountDeletionNotice(to string, on time.Time) error {
 func deletionNoticeBody(on time.Time) string {
 	return fmt.Sprintf("<p>Your Shetu account is scheduled for deletion on %s (UTC).</p><p>Sign in to Shetu before then to keep your account.</p>", on.UTC().Format("2 January 2006"))
 }
+
+// SendTwoFactorNotice tells the account owner that two-factor changed: event is enabled,
+// disabled, backup_used or disabled_by_email.
+func (s *Sender) SendTwoFactorNotice(to, event string) error {
+	if !s.Enabled() {
+		return fmt.Errorf("email delivery is not configured (SMTP_HOST unset)")
+	}
+	subject, body := twoFactorNoticeBody(event)
+	return s.send(to, subject, body)
+}
+
+func twoFactorNoticeBody(event string) (string, string) {
+	const unexpected = "<p>If this wasn't you, change your password and sign out your other devices in Shetu.</p>"
+	switch event {
+	case "enabled":
+		return "Two-factor sign-in is on", "<p>Two-factor sign-in was turned on for your Shetu account.</p>" + unexpected
+	case "backup_used":
+		return "A Shetu backup code was used", "<p>One of your two-factor backup codes was just used.</p>" + unexpected
+	case "disabled_by_email":
+		return "Two-factor sign-in is off", "<p>Two-factor sign-in was turned off for your Shetu account during a recovery-code reset, using a code sent to this address.</p>" + unexpected
+	default:
+		return "Two-factor sign-in is off", "<p>Two-factor sign-in was turned off for your Shetu account.</p>" + unexpected
+	}
+}

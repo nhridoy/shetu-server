@@ -525,6 +525,7 @@ type recoveryRequest struct {
 	NewKDF                  kdfParams `json:"new_kdf"`
 	NewServerSalt           string    `json:"new_server_salt"`
 	NewSaltCL               string    `json:"new_salt_cl"`
+	TwoFactorProof          string    `json:"two_factor_proof"`
 }
 
 func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
@@ -576,6 +577,16 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		disableTwoFactor := false
+		if _, on := twoFactorOn(db, user.ID); on {
+			proof, ok := takeRecoveryProof(db, user.ID, req.TwoFactorProof)
+			if !ok {
+				challengeExpired(c)
+				return
+			}
+			disableTwoFactor = proof.DisableTwoFactor
+		}
+
 		user.AuthVerifier = &req.NewVerifier
 		if req.NewRecoveryCode != "" {
 			newCodeBytes, err := base64.RawStdEncoding.DecodeString(req.NewRecoveryCode)
@@ -617,7 +628,12 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				}
 			}
 			if req.NewDekWrappedByRecovery != "" {
-				return upsertUserKey(tx, user.ID, "dek_wrapped_by_recovery", req.NewDekWrappedByRecovery)
+				if err := upsertUserKey(tx, user.ID, "dek_wrapped_by_recovery", req.NewDekWrappedByRecovery); err != nil {
+					return err
+				}
+			}
+			if disableTwoFactor {
+				return removeTwoFactor(tx, user.ID)
 			}
 			return nil
 		})
@@ -628,6 +644,9 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		clearLoginNonces(db, user.Email)
+		if disableTwoFactor {
+			notifyTwoFactor(cfg, user.Email, "disabled_by_email")
+		}
 
 		db.Model(&models.RefreshToken{}).
 			Where("user_id = ? AND revoked_at IS NULL", user.ID).
@@ -783,34 +802,48 @@ func HandleRecoveryPrefetch(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var uk models.UserKey
-		if db.Where("user_id = ? AND key_type = ?", user.ID, "dek_wrapped_by_recovery").First(&uk).Error != nil {
-			Error(c, http.StatusNotFound, "NOT_FOUND", "no recovery data for this account")
+		// The recovery-wrapped key opens the vault: a two-factor account gets it only after the code.
+		if gateTwoFactor(c, db, user.ID, "", challengeRecovery, recoveryChallengeTTL) {
 			return
 		}
-
-		var pk models.UserKey
-		db.Where("user_id = ? AND key_type = ?", user.ID, "private_key_wrapped_by_dek").First(&pk)
-
-		nonce, err := randBytes(32)
-		if err != nil {
-			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate nonce")
-			return
-		}
-		Success(c, http.StatusOK, gin.H{
-			"nonce": nonce,
-			"email": user.Email,
-			"kdf": map[string]any{
-				"m": user.KDFM,
-				"t": user.KDFT,
-				"p": user.KDFP,
-			},
-			"server_salt":                deref(user.AuthSalt),
-			"salt_cl":                    deref(user.SaltCL),
-			"dek_wrapped_by_recovery":    uk.Payload,
-			"private_key_wrapped_by_dek": pk.Payload,
-		})
+		writeRecoveryPrefetch(c, db, user, "")
 	}
+}
+
+// writeRecoveryPrefetch answers with what the client needs to unwrap the vault with its
+// recovery code, plus a two-factor proof when one was just earned.
+func writeRecoveryPrefetch(c *gin.Context, db *gorm.DB, user models.User, proof string) {
+	var uk models.UserKey
+	if db.Where("user_id = ? AND key_type = ?", user.ID, "dek_wrapped_by_recovery").First(&uk).Error != nil {
+		Error(c, http.StatusNotFound, "NOT_FOUND", "no recovery data for this account")
+		return
+	}
+
+	var pk models.UserKey
+	db.Where("user_id = ? AND key_type = ?", user.ID, "private_key_wrapped_by_dek").First(&pk)
+
+	nonce, err := randBytes(32)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate nonce")
+		return
+	}
+	data := gin.H{
+		"nonce": nonce,
+		"email": user.Email,
+		"kdf": map[string]any{
+			"m": user.KDFM,
+			"t": user.KDFT,
+			"p": user.KDFP,
+		},
+		"server_salt":                deref(user.AuthSalt),
+		"salt_cl":                    deref(user.SaltCL),
+		"dek_wrapped_by_recovery":    uk.Payload,
+		"private_key_wrapped_by_dek": pk.Payload,
+	}
+	if proof != "" {
+		data["two_factor_proof"] = proof
+	}
+	Success(c, http.StatusOK, data)
 }
 
 func HandleMe(db *gorm.DB) gin.HandlerFunc {

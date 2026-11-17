@@ -268,7 +268,35 @@ func finishOAuthCallback(c *gin.Context, db *gorm.DB, cfg *config.Config, state 
 	}))
 }
 
-// finishRecoveryChallenge is completed in the recovery task.
+// finishRecoveryChallenge hands out the recovery material and a single-use proof for
+// POST /auth/recovery. A proof won with the emailed code turns two-factor off when used.
 func finishRecoveryChallenge(c *gin.Context, db *gorm.DB, user models.User, viaEmail bool) {
-	challengeExpired(c)
+	token, err := newChallenge(db, user.ID, "", recoveryProofPath, recoveryProofTTL)
+	if err == nil && viaEmail {
+		err = db.Model(&models.TwoFactorChallenge{}).Where("token_hash = ?", hashToken(token)).Update("disable_two_factor", true).Error
+	}
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to finish two-factor")
+		return
+	}
+	writeRecoveryPrefetch(c, db, user, token)
+}
+
+// takeRecoveryProof consumes the user's recovery proof once.
+func takeRecoveryProof(db *gorm.DB, userID uuid.UUID, token string) (*models.TwoFactorChallenge, bool) {
+	if token == "" {
+		return nil, false
+	}
+	hash := hashToken(token)
+	res := db.Model(&models.TwoFactorChallenge{}).
+		Where("token_hash = ? AND user_id = ? AND path = ? AND used_at IS NULL AND expires_at > ?", hash, userID, recoveryProofPath, time.Now()).
+		Update("used_at", time.Now())
+	if res.Error != nil || res.RowsAffected == 0 {
+		return nil, false
+	}
+	var proof models.TwoFactorChallenge
+	if db.First(&proof, "token_hash = ?", hash).Error != nil {
+		return nil, false
+	}
+	return &proof, true
 }

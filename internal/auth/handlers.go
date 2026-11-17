@@ -365,10 +365,18 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		if rt.RevokedAt != nil {
+		// Only a token that was already rotated means someone replayed a copy (theft): sign
+		// everything out. A token revoked on purpose (sign-out, password change, revoke) is just
+		// refused; with live signals its device refreshes within a second, and treating that as
+		// theft would sign out the device that made the change too.
+		if rt.RotatedAt != nil {
 			db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked_at IS NULL", rt.UserID).
 				Update("revoked_at", time.Now())
 			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "refresh token revoked (reuse detected)")
+			return
+		}
+		if rt.RevokedAt != nil {
+			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "refresh token revoked")
 			return
 		}
 

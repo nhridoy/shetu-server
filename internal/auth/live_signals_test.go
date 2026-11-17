@@ -92,3 +92,26 @@ func TestLive_DeletionScheduledNotifiesAndCloses(t *testing.T) {
 		t.Fatalf("deletion: %v closed=%v", k, closed)
 	}
 }
+
+func TestLive_PasswordChangeDoesNotSignOutTheChangingDevice(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	_, verifier := seedUserWithVerifier(t, db, "pwkeep@example.com")
+	access, refreshA := loginWithDevice(t, r, db, "pwkeep@example.com", verifier, uuid.NewString())
+	_, refreshB := loginWithDevice(t, r, db, "pwkeep@example.com", verifier, uuid.NewString())
+	nonce := []byte("pwkeep-nonce")
+	seedLoginNonce(t, db, "pwkeep@example.com", base64.RawStdEncoding.EncodeToString(nonce))
+	postJSONTo(r, "/api/v1/auth/password-change", gin.H{
+		"old_proof":    base64.RawStdEncoding.EncodeToString(GenerateProof(verifier, nonce)),
+		"old_nonce":    base64.RawStdEncoding.EncodeToString(nonce),
+		"new_verifier": "fresh",
+	}, access)
+	// Device B learns of the change at once and refreshes with its now-revoked token.
+	if w := postJSONTo(r, "/api/v1/auth/refresh", gin.H{"refresh_token": refreshB}, ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("B's refresh: %d", w.Code)
+	}
+	// That must not count as token theft: device A, which changed the password, stays signed in.
+	if w := postJSONTo(r, "/api/v1/auth/refresh", gin.H{"refresh_token": refreshA}, ""); w.Code != http.StatusOK {
+		t.Fatalf("A was signed out by B's refresh: %d %s", w.Code, w.Body.String())
+	}
+}

@@ -439,7 +439,9 @@ func TestTwoFactor_AccountLimitHoldsUnderConcurrentGuesses(t *testing.T) {
 	}
 	wg.Wait()
 	checked, locked := got["TWO_FACTOR_INVALID"], got["TWO_FACTOR_LOCKED"]
-	if checked+locked != 30 || checked > 20 || checked == 0 {
+	// Every attempt is recorded before the sum is read, so a burst may lock all 30 (it never
+	// admits more than 20); any other answer means a request failed before the check.
+	if checked+locked != 30 || checked > 20 {
 		t.Fatalf("want every guess checked or locked with at most 20 checked, got %v", got)
 	}
 }

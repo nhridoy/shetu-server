@@ -2,6 +2,7 @@ package live
 
 import (
 	"bufio"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,5 +128,50 @@ func TestLive_DeviceRevokedEndsStream(t *testing.T) {
 	h.PublishDevice(u, "dev-a", KindDeviceRevoked)
 	waitLine(t, ch, "event: device_revoked")
 	for range ch {
+	}
+}
+
+// stuckWriter is a client that stopped reading: writes block until the write deadline passes.
+type stuckWriter struct {
+	header   http.Header
+	deadline chan time.Time
+}
+
+func (w *stuckWriter) Header() http.Header { return w.header }
+func (w *stuckWriter) WriteHeader(int)     {}
+func (w *stuckWriter) Flush()              {}
+func (w *stuckWriter) Write(b []byte) (int, error) {
+	d := <-w.deadline
+	time.Sleep(time.Until(d))
+	return 0, errors.New("write deadline exceeded")
+}
+func (w *stuckWriter) SetWriteDeadline(d time.Time) error {
+	select {
+	case w.deadline <- d:
+	default:
+	}
+	return nil
+}
+
+func TestLive_StuckClientDoesNotHoldTheHandler(t *testing.T) {
+	useHub(t)
+	prev := writeTimeout
+	writeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { writeTimeout = prev })
+	gin.SetMode(gin.TestMode)
+	w := &stuckWriter{header: http.Header{}, deadline: make(chan time.Time, 1)}
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/live", nil)
+	c.Set("user_id", uuid.New())
+	c.Set("token_exp", time.Now().Add(time.Hour))
+	done := make(chan struct{})
+	go func() {
+		HandleLive()(c)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a client that stopped reading kept the handler alive")
 	}
 }

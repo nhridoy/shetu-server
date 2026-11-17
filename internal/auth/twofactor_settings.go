@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -48,24 +47,6 @@ func savePendingSecret(db *gorm.DB, userID uuid.UUID, sealed string) error {
 // deliverOtp sends an email code; tests replace it to read the code.
 var deliverOtp = func(cfg *config.Config, to, code string) error {
 	return email.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom, cfg.LogOtpFallback).SendOtp(to, code)
-}
-
-// notifyTwoFactor sends a best-effort notice in the background; it never delays the response.
-var notifyTwoFactor = func(cfg *config.Config, to, event string) {
-	sender := email.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom, cfg.LogOtpFallback)
-	if !sender.Enabled() {
-		return
-	}
-	go func() {
-		// The error is not logged: SMTP errors often echo the recipient address.
-		kind, detail := map[string]string{"enabled": "two_factor_enabled", "disabled": "two_factor_disabled", "disabled_by_email": "two_factor_disabled", "backup_used": "backup_code_used"}[event], ""
-		if event == "disabled_by_email" {
-			detail = "email"
-		}
-		if sender.SendSecurityNotice(to, kind, detail, "", time.Now()) != nil {
-			slog.Warn("two-factor notice not sent", "event", event)
-		}
-	}()
 }
 
 // twoFactorRow returns the user's two-factor row, enabled or in setup; nil when none.
@@ -129,10 +110,6 @@ func verifySecondFactor(db *gorm.DB, cfg *config.Config, tf *models.TwoFactor, c
 	}
 	if res.RowsAffected == 0 {
 		return false, errCodeInvalid
-	}
-	var user models.User
-	if db.Select("email").First(&user, "id = ?", tf.UserID).Error == nil {
-		notifyTwoFactor(cfg, user.Email, "backup_used")
 	}
 	return true, nil
 }
@@ -367,7 +344,7 @@ func HandleTwoFactorConfirm(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to turn on two-factor")
 			return
 		}
-		notifyTwoFactor(cfg, user.Email, "enabled")
+		recordEvent(c, db, cfg, user.ID, "two_factor_enabled", c.GetString("device_id"), "")
 		Success(c, http.StatusOK, gin.H{"backup_codes": codes})
 	}
 }
@@ -391,15 +368,19 @@ func HandleTwoFactorDisable(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		if _, err := verifySecondFactor(db, cfg, tf, req.Code); err != nil {
+		usedBackup, err := verifySecondFactor(db, cfg, tf, req.Code)
+		if err != nil {
 			writeCodeError(c, err)
 			return
+		}
+		if usedBackup {
+			recordEvent(c, db, cfg, user.ID, "backup_code_used", c.GetString("device_id"), "")
 		}
 		if err := removeTwoFactor(db, user.ID); err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to turn off two-factor")
 			return
 		}
-		notifyTwoFactor(cfg, user.Email, "disabled")
+		recordEvent(c, db, cfg, user.ID, "two_factor_disabled", c.GetString("device_id"), "")
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -431,12 +412,16 @@ func HandleTwoFactorBackupCodes(db *gorm.DB, cfg *config.Config) gin.HandlerFunc
 		if !ok {
 			return
 		}
-		if _, err := verifySecondFactor(db, cfg, tf, req.Code); err != nil {
+		usedBackup, err := verifySecondFactor(db, cfg, tf, req.Code)
+		if err != nil {
 			writeCodeError(c, err)
 			return
 		}
+		if usedBackup {
+			recordEvent(c, db, cfg, user.ID, "backup_code_used", c.GetString("device_id"), "")
+		}
 		var codes []string
-		err := db.Transaction(func(tx *gorm.DB) error {
+		err = db.Transaction(func(tx *gorm.DB) error {
 			var err error
 			codes, err = replaceBackupCodes(tx, user.ID)
 			return err

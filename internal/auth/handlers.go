@@ -511,6 +511,7 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Where("user_id = ? AND device_id <> ? AND revoked_at IS NULL", user.ID, deviceID).
 			Update("revoked_at", time.Now())
 
+		recordEvent(c, db, cfg, user.ID, "password_changed", deviceID, "")
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -650,8 +651,9 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		clearLoginNonces(db, user.Email)
+		recordEvent(c, db, cfg, user.ID, "recovery_used", "", "all devices signed out")
 		if disableTwoFactor {
-			notifyTwoFactor(cfg, user.Email, "disabled_by_email")
+			recordEvent(c, db, cfg, user.ID, "two_factor_disabled", "", "email")
 		}
 
 		db.Model(&models.RefreshToken{}).

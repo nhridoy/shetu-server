@@ -221,9 +221,11 @@ func HandleTwoFactorVerify(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				codeRefused(c, db, cfg, ch, err)
 				return
 			}
-		} else if _, err := verifySecondFactor(db, cfg, tf, req.Code); err != nil {
+		} else if usedBackup, err := verifySecondFactor(db, cfg, tf, req.Code); err != nil {
 			codeRefused(c, db, cfg, ch, err)
 			return
+		} else if usedBackup {
+			recordEvent(c, db, cfg, ch.UserID, "backup_code_used", ch.DeviceID, "")
 		}
 		if !markUsed(db, ch.ID) {
 			challengeExpired(c)

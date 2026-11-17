@@ -66,11 +66,12 @@ func HandleRequestDeletion(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				}
 			}()
 		}
+		recordEvent(c, db, cfg, userID.(uuid.UUID), "deletion_scheduled", c.GetString("device_id"), "")
 		Success(c, http.StatusOK, gin.H{"deletion_scheduled_for": at.UTC().Format(time.RFC3339)})
 	}
 }
 
-func HandleCancelDeletion(db *gorm.DB) gin.HandlerFunc {
+func HandleCancelDeletion(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, ok := c.Get("user_id")
 		if !ok {
@@ -86,6 +87,7 @@ func HandleCancelDeletion(db *gorm.DB) gin.HandlerFunc {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to cancel deletion")
 			return
 		}
+		recordEvent(c, db, cfg, userID.(uuid.UUID), "deletion_cancelled", c.GetString("device_id"), "")
 		c.Status(http.StatusNoContent)
 	}
 }

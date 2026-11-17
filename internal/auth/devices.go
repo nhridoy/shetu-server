@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"github.com/nhridoy/shetu-server/internal/config"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -190,7 +192,7 @@ func revokeDevices(tx *gorm.DB, userID uuid.UUID, deviceIDs []string) error {
 }
 
 // HandleRevokeDevice signs out one other device of the user.
-func HandleRevokeDevice(db *gorm.DB) gin.HandlerFunc {
+func HandleRevokeDevice(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("user_id").(uuid.UUID)
 		target := c.Param("device_id")
@@ -198,9 +200,9 @@ func HandleRevokeDevice(db *gorm.DB) gin.HandlerFunc {
 			Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "use Sign out for this device")
 			return
 		}
-		var n int64
-		db.Model(&models.Device{}).Where("user_id = ? AND device_id = ? AND revoked_at IS NULL", userID, target).Count(&n)
-		if n == 0 {
+		var found []models.Device
+		db.Where("user_id = ? AND device_id = ? AND revoked_at IS NULL", userID, target).Limit(1).Find(&found)
+		if len(found) == 0 {
 			Error(c, http.StatusNotFound, "NOT_FOUND", "device not found")
 			return
 		}
@@ -208,12 +210,17 @@ func HandleRevokeDevice(db *gorm.DB) gin.HandlerFunc {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to sign out device")
 			return
 		}
+		name := found[0].Name
+		if name == "" {
+			name = "Unnamed device"
+		}
+		recordEvent(c, db, cfg, userID, "device_revoked", c.GetString("device_id"), name)
 		c.Status(http.StatusNoContent)
 	}
 }
 
 // HandleRevokeOtherDevices signs out every device of the user except this one.
-func HandleRevokeOtherDevices(db *gorm.DB) gin.HandlerFunc {
+func HandleRevokeOtherDevices(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("user_id").(uuid.UUID)
 		current, ok := currentDevice(c)
@@ -232,6 +239,7 @@ func HandleRevokeOtherDevices(db *gorm.DB) gin.HandlerFunc {
 				Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to sign out devices")
 				return
 			}
+			recordEvent(c, db, cfg, userID, "devices_revoked_others", current, strconv.Itoa(len(others)))
 		}
 		Success(c, http.StatusOK, gin.H{"revoked": len(others)})
 	}

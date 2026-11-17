@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -220,5 +221,67 @@ func TestEvents_DeletionScheduledCancelled(t *testing.T) {
 	}
 	if len(*sent) != 0 {
 		t.Fatalf("deletion kinds must not send security emails: %+v", *sent)
+	}
+}
+
+func TestEvents_RevokeCountsOnlyDevicesItChanged(t *testing.T) {
+	db := setupTestDB(t)
+	uid, _ := seedUserWithVerifier(t, db, "count-rev@example.com")
+	a, b := uuid.NewString(), uuid.NewString()
+	db.Create(&models.Device{UserID: uid, DeviceID: a, LastSeenAt: time.Now()})
+	db.Create(&models.Device{UserID: uid, DeviceID: b, LastSeenAt: time.Now()})
+	n, err := revokeDevices(db, uid, []string{a, b})
+	if err != nil || n != 2 {
+		t.Fatalf("first revoke: %d %v", n, err)
+	}
+	// A second request that selected the same devices changes nothing and reports nothing.
+	if n, err := revokeDevices(db, uid, []string{a, b}); err != nil || n != 0 {
+		t.Fatalf("second revoke: %d %v", n, err)
+	}
+}
+
+func TestEvents_RecoveryReportsSignOutOnlyWhenItHappened(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, testConfig())
+	uid, _ := seedRecoverable(t, db, "rec-fail@example.com")
+	if err := db.Callback().Update().Before("gorm:update").Register("test:fail-token-revoke", func(tx *gorm.DB) {
+		if tx.Statement.Table == "refresh_tokens" {
+			tx.AddError(errors.New("refresh token update failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	recoverWith(t, r, "")
+	if e := lastEvent(t, db, uid); e.Kind != "recovery_used" || e.Detail != "" {
+		t.Fatalf("event claims a sign-out that failed: %+v", e)
+	}
+}
+
+func TestEvents_UsedBackupCodeIsNotAWrongGuess(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, verifier := seedUserWithVerifier(t, db, "usedbc@example.com")
+	_, backup := seedTwoFactor(t, db, cfg, uid)
+	verifyCode(r, challengeOf(t, loginRaw(t, r, db, "usedbc@example.com", verifier, uuid.NewString())), backup[0], "backup")
+	w := verifyCode(r, challengeOf(t, loginRaw(t, r, db, "usedbc@example.com", verifier, uuid.NewString())), backup[0], "backup")
+	if errCode(w.Body.Bytes()) != "TWO_FACTOR_INVALID" {
+		t.Fatalf("used backup code: %d %s", w.Code, w.Body.String())
+	}
+	var wrong int64
+	db.Model(&models.SecurityEvent{}).Where("user_id = ? AND kind = ?", uid, "two_factor_failed").Count(&wrong)
+	if wrong != 0 {
+		t.Fatalf("a used backup code was reported as a wrong guess")
+	}
+}
+
+func TestEvents_EmailCodeLookupFailureIsNotExpired(t *testing.T) {
+	db := setupTestDB(t)
+	uid, _ := seedUserWithVerifier(t, db, "dberr@example.com")
+	if err := db.Migrator().DropTable(&models.AuthCode{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := consumeEmailCode(db, uid, twoFactorRecoveryPurpose, "123456"); err == nil || errors.Is(err, errEmailCodeExpired) {
+		t.Fatalf("a database error must not read as an expired code: %v", err)
 	}
 }

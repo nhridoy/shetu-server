@@ -179,14 +179,17 @@ func HandleRenameDevice(db *gorm.DB) gin.HandlerFunc {
 }
 
 // revokeDevices signs the given devices out: marks them revoked and revokes their refresh tokens.
-func revokeDevices(tx *gorm.DB, userID uuid.UUID, deviceIDs []string) error {
+// revokeDevices signs devices out and returns how many it changed (a concurrent request may
+// already have revoked some).
+func revokeDevices(tx *gorm.DB, userID uuid.UUID, deviceIDs []string) (int64, error) {
 	now := time.Now()
-	if err := tx.Model(&models.Device{}).
+	res := tx.Model(&models.Device{}).
 		Where("user_id = ? AND device_id IN ? AND revoked_at IS NULL", userID, deviceIDs).
-		Update("revoked_at", now).Error; err != nil {
-		return err
+		Update("revoked_at", now)
+	if res.Error != nil {
+		return 0, res.Error
 	}
-	return tx.Model(&models.RefreshToken{}).
+	return res.RowsAffected, tx.Model(&models.RefreshToken{}).
 		Where("user_id = ? AND device_id IN ? AND revoked_at IS NULL", userID, deviceIDs).
 		Update("revoked_at", now).Error
 }
@@ -206,7 +209,11 @@ func HandleRevokeDevice(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Error(c, http.StatusNotFound, "NOT_FOUND", "device not found")
 			return
 		}
-		if err := db.Transaction(func(tx *gorm.DB) error { return revokeDevices(tx, userID, []string{target}) }); err != nil {
+		var changed int64
+		if err := db.Transaction(func(tx *gorm.DB) (err error) {
+			changed, err = revokeDevices(tx, userID, []string{target})
+			return err
+		}); err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to sign out device")
 			return
 		}
@@ -214,7 +221,9 @@ func HandleRevokeDevice(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		if name == "" {
 			name = "Unnamed device"
 		}
-		recordEvent(c, db, cfg, userID, "device_revoked", c.GetString("device_id"), name)
+		if changed > 0 {
+			recordEvent(c, db, cfg, userID, "device_revoked", c.GetString("device_id"), name)
+		}
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -235,11 +244,17 @@ func HandleRevokeOtherDevices(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		if len(others) > 0 {
-			if err := db.Transaction(func(tx *gorm.DB) error { return revokeDevices(tx, userID, others) }); err != nil {
+			var changed int64
+			if err := db.Transaction(func(tx *gorm.DB) (err error) {
+				changed, err = revokeDevices(tx, userID, others)
+				return err
+			}); err != nil {
 				Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to sign out devices")
 				return
 			}
-			recordEvent(c, db, cfg, userID, "devices_revoked_others", current, strconv.Itoa(len(others)))
+			if changed > 0 {
+				recordEvent(c, db, cfg, userID, "devices_revoked_others", current, strconv.FormatInt(changed, 10))
+			}
 		}
 		Success(c, http.StatusOK, gin.H{"revoked": len(others)})
 	}

@@ -651,14 +651,18 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		clearLoginNonces(db, user.Email)
-		recordEvent(c, db, cfg, user.ID, "recovery_used", "", "all devices signed out")
+
+		signedOut := "all devices signed out"
+		if err := db.Model(&models.RefreshToken{}).
+			Where("user_id = ? AND revoked_at IS NULL", user.ID).
+			Update("revoked_at", time.Now()).Error; err != nil {
+			slog.Error("failed to sign out devices after recovery", "error", err)
+			signedOut = ""
+		}
+		recordEvent(c, db, cfg, user.ID, "recovery_used", "", signedOut)
 		if disableTwoFactor {
 			recordEvent(c, db, cfg, user.ID, "two_factor_disabled", "", "email")
 		}
-
-		db.Model(&models.RefreshToken{}).
-			Where("user_id = ? AND revoked_at IS NULL", user.ID).
-			Update("revoked_at", time.Now())
 
 		c.Status(http.StatusNoContent)
 	}

@@ -22,6 +22,8 @@ var (
 	errTwoFactorUnavailable = errors.New("two-factor unavailable")
 	errTwoFactorEnabled     = errors.New("two-factor already on")
 	errEmailCodeExpired     = errors.New("email code expired")
+	// A backup code that exists but was already used: refused, but the owner's slip, not a guess.
+	errBackupCodeUsed = errors.New("backup code already used")
 )
 
 // savePendingSecret stores a setup's pending secret. It only touches a row still in setup
@@ -67,7 +69,7 @@ func writeCodeError(c *gin.Context, err error) {
 	// 400, not 401: a 401 on a signed-in call makes the app drop its session.
 	case errors.Is(err, errCodeReused):
 		Error(c, http.StatusBadRequest, "TWO_FACTOR_CODE_REUSED", "This code was just used. Wait for the next code.")
-	case errors.Is(err, errCodeInvalid):
+	case errors.Is(err, errCodeInvalid), errors.Is(err, errBackupCodeUsed):
 		Error(c, http.StatusBadRequest, "TWO_FACTOR_INVALID", "That code isn't right.")
 	case errors.Is(err, errEmailCodeExpired):
 		Error(c, http.StatusBadRequest, "TWO_FACTOR_CODE_EXPIRED", "That code has expired. Send a new one.")
@@ -112,6 +114,11 @@ func verifySecondFactor(db *gorm.DB, cfg *config.Config, tf *models.TwoFactor, c
 		return false, res.Error
 	}
 	if res.RowsAffected == 0 {
+		var used int64
+		db.Model(&models.TwoFactorBackupCode{}).Where("user_id = ? AND code_hash = ?", tf.UserID, hashCode(norm)).Count(&used)
+		if used > 0 {
+			return false, errBackupCodeUsed
+		}
 		return false, errCodeInvalid
 	}
 	return true, nil
@@ -131,12 +138,19 @@ func consumeEmailCode(db *gorm.DB, userID uuid.UUID, purpose, code string) error
 	var row models.AuthCode
 	err := db.Where("user_id = ? AND purpose = ? AND used_at IS NULL", userID, purpose).Order("created_at DESC").First(&row).Error
 	// No code, an expired one or one out of tries: the person needs a new code (not a guess).
-	if err != nil || row.ExpiresAt.Before(time.Now()) {
+	// A database error stays an error, never "expired".
+	if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && row.ExpiresAt.Before(time.Now())) {
 		return errEmailCodeExpired
+	}
+	if err != nil {
+		return err
 	}
 	// Reserve the attempt before comparing, so parallel guesses can't exceed the limit.
 	res := db.Model(&models.AuthCode{}).Where("id = ? AND attempts < ?", row.ID, maxOtpAttempts).Update("attempts", gorm.Expr("attempts + 1"))
-	if res.Error != nil || res.RowsAffected == 0 {
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return errEmailCodeExpired
 	}
 	sum := sha256.Sum256([]byte(normalizeCode(code)))

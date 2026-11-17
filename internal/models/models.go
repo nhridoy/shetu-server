@@ -18,6 +18,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&TwoFactor{},
 		&TwoFactorBackupCode{},
 		&TwoFactorChallenge{},
+		&SecurityEvent{},
 		&LoginNonce{},
 		&Vault{},
 		&Team{},

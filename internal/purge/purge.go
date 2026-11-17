@@ -123,7 +123,7 @@ func purgeUser(tx *gorm.DB, userID uuid.UUID, now time.Time) (bool, error) {
 	}
 
 	// 4. Credentials and records keyed by the user.
-	for _, m := range []any{&models.UserKey{}, &models.RefreshToken{}, &models.Device{}, &models.AuthCode{}, &models.TwoFactor{}, &models.TwoFactorBackupCode{}, &models.TwoFactorChallenge{}, &models.TeamSyncOperation{}} {
+	for _, m := range []any{&models.UserKey{}, &models.RefreshToken{}, &models.Device{}, &models.AuthCode{}, &models.TwoFactor{}, &models.TwoFactorBackupCode{}, &models.TwoFactorChallenge{}, &models.SecurityEvent{}, &models.TeamSyncOperation{}} {
 		if err := tx.Where("user_id = ?", userID).Delete(m).Error; err != nil {
 			return false, err
 		}
@@ -166,10 +166,22 @@ func RunPurgeLoop(ctx context.Context, db *gorm.DB, every time.Duration) {
 		} else if n > 0 {
 			slog.Info("account purge", "purged", n)
 		}
+		if _, err := PurgeOldSecurityEvents(db, time.Now()); err != nil {
+			slog.Error("security event cleanup failed", "error", err)
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
 	}
+}
+
+// securityEventRetention is how long an account's security history is kept.
+const securityEventRetention = 90 * 24 * time.Hour
+
+// PurgeOldSecurityEvents deletes security events older than the retention period.
+func PurgeOldSecurityEvents(db *gorm.DB, now time.Time) (int64, error) {
+	res := db.Where("created_at < ?", now.Add(-securityEventRetention)).Delete(&models.SecurityEvent{})
+	return res.RowsAffected, res.Error
 }

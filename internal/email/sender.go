@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net"
 	"net/smtp"
@@ -128,26 +129,53 @@ func deletionNoticeBody(on time.Time) string {
 	return fmt.Sprintf("<p>Your Shetu account is scheduled for deletion on %s (UTC).</p><p>Sign in to Shetu before then to keep your account.</p>", on.UTC().Format("2 January 2006"))
 }
 
-// SendTwoFactorNotice tells the account owner that two-factor changed: event is enabled,
-// disabled, backup_used or disabled_by_email.
-func (s *Sender) SendTwoFactorNotice(to, event string) error {
+// SendSecurityNotice tells the account owner about a security event (see securityNoticeBody).
+func (s *Sender) SendSecurityNotice(to, kind, detail, ip string, at time.Time) error {
 	if !s.Enabled() {
 		return fmt.Errorf("email delivery is not configured (SMTP_HOST unset)")
 	}
-	subject, body := twoFactorNoticeBody(event)
+	subject, body := securityNoticeBody(kind, detail, ip, at)
 	return s.send(to, subject, body)
 }
 
-func twoFactorNoticeBody(event string) (string, string) {
+func securityNoticeBody(kind, detail, ip string, at time.Time) (string, string) {
 	const unexpected = "<p>If this wasn't you, change your password and sign out your other devices in Shetu.</p>"
-	switch event {
-	case "enabled":
-		return "Two-factor sign-in is on", "<p>Two-factor sign-in was turned on for your Shetu account.</p>" + unexpected
-	case "backup_used":
-		return "A Shetu backup code was used", "<p>One of your two-factor backup codes was just used.</p>" + unexpected
-	case "disabled_by_email":
-		return "Two-factor sign-in is off", "<p>Two-factor sign-in was turned off for your Shetu account during a recovery-code reset, using a code sent to this address.</p>" + unexpected
-	default:
-		return "Two-factor sign-in is off", "<p>Two-factor sign-in was turned off for your Shetu account.</p>" + unexpected
+	when := "<p>Time: " + html.EscapeString(at.UTC().Format("2 January 2006, 15:04")) + " UTC"
+	if ip != "" {
+		when += "<br>IP address: " + html.EscapeString(ip)
 	}
+	when += "</p>"
+	subject, lead := "Shetu account activity", "<p>There was security activity on your Shetu account.</p>"
+	switch kind {
+	case "sign_in_new_device":
+		subject, lead = "New sign-in to Shetu", "<p>A device that hasn't used your Shetu account before just signed in.</p>"
+	case "password_changed":
+		subject, lead = "Your Shetu password was changed", "<p>The password for your Shetu account was changed.</p>"
+	case "recovery_used":
+		subject, lead = "Your Shetu password was reset", "<p>Your Shetu password was reset with your recovery code, and all devices were signed out.</p>"
+	case "device_revoked":
+		subject, lead = "A device was signed out of Shetu", "<p>The device \""+html.EscapeString(detail)+"\" was signed out of your Shetu account from another device.</p>"
+	case "devices_revoked_others":
+		subject, lead = "Devices were signed out of Shetu", "<p>"+html.EscapeString(detail)+" other devices were signed out of your Shetu account.</p>"
+	case "two_factor_failed":
+		subject = "A Shetu two-factor code was wrong"
+		switch detail {
+		case "oauth":
+			lead = "<p>Someone signed in with Google/GitHub but not your two-factor code.</p>"
+		case "recovery":
+			lead = "<p>Someone used your recovery code but not your two-factor code.</p>"
+		default:
+			lead = "<p>Someone entered your password but not your two-factor code.</p>"
+		}
+	case "two_factor_enabled":
+		subject, lead = "Two-factor sign-in is on", "<p>Two-factor sign-in was turned on for your Shetu account.</p>"
+	case "backup_code_used":
+		subject, lead = "A Shetu backup code was used", "<p>One of your two-factor backup codes was just used.</p>"
+	case "two_factor_disabled":
+		subject, lead = "Two-factor sign-in is off", "<p>Two-factor sign-in was turned off for your Shetu account.</p>"
+		if detail == "email" {
+			lead = "<p>Two-factor sign-in was turned off for your Shetu account during a recovery-code reset, using a code sent to this address.</p>"
+		}
+	}
+	return subject, lead + when + unexpected
 }

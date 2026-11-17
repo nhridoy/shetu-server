@@ -221,7 +221,7 @@ func HandleRegister(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		recordDevice(db, userID, req.DeviceID, true)
+		recordSignIn(c, db, cfg, userID, req.DeviceID, "password")
 		rt, err := createRefreshToken(db, userID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
@@ -310,6 +310,7 @@ func HandleLogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 
 		expectedProof := GenerateProof(verifierBytes, nonceBytes)
 		if !ConstantTimeCompare(proofBytes, expectedProof) {
+			recordEvent(c, db, cfg, user.ID, "sign_in_failed", "", "")
 			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid credentials")
 			return
 		}
@@ -327,7 +328,7 @@ func HandleLogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		if gateTwoFactor(c, db, user.ID, req.DeviceID, challengeLogin, challengeTTL) {
 			return
 		}
-		issueSignIn(c, db, cfg, user, req.DeviceID)
+		issueSignIn(c, db, cfg, user, req.DeviceID, "password")
 	}
 }
 
@@ -510,6 +511,7 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Where("user_id = ? AND device_id <> ? AND revoked_at IS NULL", user.ID, deviceID).
 			Update("revoked_at", time.Now())
 
+		recordEvent(c, db, cfg, user.ID, "password_changed", deviceID, "")
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -649,13 +651,18 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		clearLoginNonces(db, user.Email)
-		if disableTwoFactor {
-			notifyTwoFactor(cfg, user.Email, "disabled_by_email")
-		}
 
-		db.Model(&models.RefreshToken{}).
+		signedOut := "all devices signed out"
+		if err := db.Model(&models.RefreshToken{}).
 			Where("user_id = ? AND revoked_at IS NULL", user.ID).
-			Update("revoked_at", time.Now())
+			Update("revoked_at", time.Now()).Error; err != nil {
+			slog.Error("failed to sign out devices after recovery", "error", err)
+			signedOut = ""
+		}
+		recordEvent(c, db, cfg, user.ID, "recovery_used", "", signedOut)
+		if disableTwoFactor {
+			recordEvent(c, db, cfg, user.ID, "two_factor_disabled", "", "email")
+		}
 
 		c.Status(http.StatusNoContent)
 	}
@@ -942,7 +949,7 @@ func HandleVerifyEmail(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		recordDevice(db, user.ID, req.DeviceID, true)
+		recordSignIn(c, db, cfg, user.ID, req.DeviceID, "password")
 		rt, err := createRefreshToken(db, user.ID, req.DeviceID, cfg)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")

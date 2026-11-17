@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"github.com/nhridoy/shetu-server/internal/config"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -177,20 +179,23 @@ func HandleRenameDevice(db *gorm.DB) gin.HandlerFunc {
 }
 
 // revokeDevices signs the given devices out: marks them revoked and revokes their refresh tokens.
-func revokeDevices(tx *gorm.DB, userID uuid.UUID, deviceIDs []string) error {
+// revokeDevices signs devices out and returns how many it changed (a concurrent request may
+// already have revoked some).
+func revokeDevices(tx *gorm.DB, userID uuid.UUID, deviceIDs []string) (int64, error) {
 	now := time.Now()
-	if err := tx.Model(&models.Device{}).
+	res := tx.Model(&models.Device{}).
 		Where("user_id = ? AND device_id IN ? AND revoked_at IS NULL", userID, deviceIDs).
-		Update("revoked_at", now).Error; err != nil {
-		return err
+		Update("revoked_at", now)
+	if res.Error != nil {
+		return 0, res.Error
 	}
-	return tx.Model(&models.RefreshToken{}).
+	return res.RowsAffected, tx.Model(&models.RefreshToken{}).
 		Where("user_id = ? AND device_id IN ? AND revoked_at IS NULL", userID, deviceIDs).
 		Update("revoked_at", now).Error
 }
 
 // HandleRevokeDevice signs out one other device of the user.
-func HandleRevokeDevice(db *gorm.DB) gin.HandlerFunc {
+func HandleRevokeDevice(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("user_id").(uuid.UUID)
 		target := c.Param("device_id")
@@ -198,22 +203,33 @@ func HandleRevokeDevice(db *gorm.DB) gin.HandlerFunc {
 			Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "use Sign out for this device")
 			return
 		}
-		var n int64
-		db.Model(&models.Device{}).Where("user_id = ? AND device_id = ? AND revoked_at IS NULL", userID, target).Count(&n)
-		if n == 0 {
+		var found []models.Device
+		db.Where("user_id = ? AND device_id = ? AND revoked_at IS NULL", userID, target).Limit(1).Find(&found)
+		if len(found) == 0 {
 			Error(c, http.StatusNotFound, "NOT_FOUND", "device not found")
 			return
 		}
-		if err := db.Transaction(func(tx *gorm.DB) error { return revokeDevices(tx, userID, []string{target}) }); err != nil {
+		var changed int64
+		if err := db.Transaction(func(tx *gorm.DB) (err error) {
+			changed, err = revokeDevices(tx, userID, []string{target})
+			return err
+		}); err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to sign out device")
 			return
+		}
+		name := found[0].Name
+		if name == "" {
+			name = "Unnamed device"
+		}
+		if changed > 0 {
+			recordEvent(c, db, cfg, userID, "device_revoked", c.GetString("device_id"), name)
 		}
 		c.Status(http.StatusNoContent)
 	}
 }
 
 // HandleRevokeOtherDevices signs out every device of the user except this one.
-func HandleRevokeOtherDevices(db *gorm.DB) gin.HandlerFunc {
+func HandleRevokeOtherDevices(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("user_id").(uuid.UUID)
 		current, ok := currentDevice(c)
@@ -228,9 +244,16 @@ func HandleRevokeOtherDevices(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if len(others) > 0 {
-			if err := db.Transaction(func(tx *gorm.DB) error { return revokeDevices(tx, userID, others) }); err != nil {
+			var changed int64
+			if err := db.Transaction(func(tx *gorm.DB) (err error) {
+				changed, err = revokeDevices(tx, userID, others)
+				return err
+			}); err != nil {
 				Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to sign out devices")
 				return
+			}
+			if changed > 0 {
+				recordEvent(c, db, cfg, userID, "devices_revoked_others", current, strconv.FormatInt(changed, 10))
 			}
 		}
 		Success(c, http.StatusOK, gin.H{"revoked": len(others)})

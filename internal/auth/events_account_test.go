@@ -285,3 +285,30 @@ func TestEvents_EmailCodeLookupFailureIsNotExpired(t *testing.T) {
 		t.Fatalf("a database error must not read as an expired code: %v", err)
 	}
 }
+
+func TestEvents_BackupLookupFailureIsNotAWrongGuess(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, verifier := seedUserWithVerifier(t, db, "bclookup@example.com")
+	seedTwoFactor(t, db, cfg, uid)
+	ch := challengeOf(t, loginRaw(t, r, db, "bclookup@example.com", verifier, uuid.NewString()))
+	// The used-code check (a count on backup codes) fails.
+	if err := db.Callback().Query().Before("gorm:query").Register("test:fail-backup-count", func(tx *gorm.DB) {
+		if tx.Statement.Table == "two_factor_backup_codes" {
+			tx.AddError(errors.New("lookup failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := verifyCode(r, ch, "abcd-efgh", "backup")
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on a lookup failure, got %d %s", w.Code, w.Body.String())
+	}
+	var wrong int64
+	db.Callback().Query().Remove("test:fail-backup-count")
+	db.Model(&models.SecurityEvent{}).Where("user_id = ? AND kind = ?", uid, "two_factor_failed").Count(&wrong)
+	if wrong != 0 {
+		t.Fatal("a lookup failure was reported as a wrong guess")
+	}
+}

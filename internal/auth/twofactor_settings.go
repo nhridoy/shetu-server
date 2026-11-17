@@ -115,7 +115,9 @@ func verifySecondFactor(db *gorm.DB, cfg *config.Config, tf *models.TwoFactor, c
 	}
 	if res.RowsAffected == 0 {
 		var used int64
-		db.Model(&models.TwoFactorBackupCode{}).Where("user_id = ? AND code_hash = ?", tf.UserID, hashCode(norm)).Count(&used)
+		if err := db.Model(&models.TwoFactorBackupCode{}).Where("user_id = ? AND code_hash = ?", tf.UserID, hashCode(norm)).Count(&used).Error; err != nil {
+			return false, err
+		}
 		if used > 0 {
 			return false, errBackupCodeUsed
 		}

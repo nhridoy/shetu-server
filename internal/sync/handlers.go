@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"maps"
 	"net/http"
 	"sync"
@@ -420,8 +421,25 @@ func HandlePush(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(status, gin.H{"error": message})
 			return
 		}
+		if len(results) > 0 {
+			live.Default.Publish(vaultAudience(db, vaultID), live.KindChanged, c.GetString("device_id"))
+		}
 		c.JSON(http.StatusOK, gin.H{"results": results})
 	}
+}
+
+// vaultAudience is everyone who syncs this vault: its owner, or a team vault's active members.
+func vaultAudience(db *gorm.DB, vaultID uuid.UUID) []uuid.UUID {
+	var vault models.Vault
+	if db.Select("owner_id", "team_id").First(&vault, "id = ?", vaultID).Error != nil {
+		return nil
+	}
+	if vault.TeamID == nil {
+		return []uuid.UUID{vault.OwnerID}
+	}
+	var users []uuid.UUID
+	db.Model(&models.TeamMember{}).Where("team_id = ? AND state = ?", *vault.TeamID, "active").Pluck("user_id", &users)
+	return users
 }
 
 func HandlePull(db *gorm.DB) gin.HandlerFunc {

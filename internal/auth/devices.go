@@ -2,6 +2,7 @@ package auth
 
 import (
 	"github.com/nhridoy/shetu-server/internal/config"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -222,6 +223,7 @@ func HandleRevokeDevice(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			name = "Unnamed device"
 		}
 		if changed > 0 {
+			live.Default.PublishDevice(userID, target, live.KindDeviceRevoked)
 			recordEvent(c, db, cfg, userID, "device_revoked", c.GetString("device_id"), name)
 		}
 		c.Status(http.StatusNoContent)
@@ -253,6 +255,10 @@ func HandleRevokeOtherDevices(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				return
 			}
 			if changed > 0 {
+				for _, d := range others {
+					live.Default.PublishDevice(userID, d, live.KindDeviceRevoked)
+				}
+				live.Default.Publish([]uuid.UUID{userID}, live.KindAccountChanged, "")
 				recordEvent(c, db, cfg, userID, "devices_revoked_others", current, strconv.FormatInt(changed, 10))
 			}
 		}

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"log/slog"
 	"net/http"
 	"time"
@@ -511,6 +512,7 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Where("user_id = ? AND device_id <> ? AND revoked_at IS NULL", user.ID, deviceID).
 			Update("revoked_at", time.Now())
 
+		live.Default.Publish([]uuid.UUID{user.ID}, live.KindAccountChanged, deviceID)
 		recordEvent(c, db, cfg, user.ID, "password_changed", deviceID, "")
 		c.Status(http.StatusNoContent)
 	}
@@ -659,6 +661,7 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			slog.Error("failed to sign out devices after recovery", "error", err)
 			signedOut = ""
 		}
+		live.Default.Publish([]uuid.UUID{user.ID}, live.KindAccountChanged, "")
 		recordEvent(c, db, cfg, user.ID, "recovery_used", "", signedOut)
 		if disableTwoFactor {
 			recordEvent(c, db, cfg, user.ID, "two_factor_disabled", "", "email")

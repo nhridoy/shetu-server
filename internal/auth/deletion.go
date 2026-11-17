@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -66,6 +67,9 @@ func HandleRequestDeletion(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 				}
 			}()
 		}
+		// Streams opened before this must not keep listening: the deletion gate only checks on open.
+		live.Default.Publish([]uuid.UUID{userID.(uuid.UUID)}, live.KindAccountChanged, "")
+		live.Default.CloseUser(userID.(uuid.UUID))
 		recordEvent(c, db, cfg, userID.(uuid.UUID), "deletion_scheduled", c.GetString("device_id"), "")
 		Success(c, http.StatusOK, gin.H{"deletion_scheduled_for": at.UTC().Format(time.RFC3339)})
 	}
@@ -87,6 +91,7 @@ func HandleCancelDeletion(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to cancel deletion")
 			return
 		}
+		live.Default.Publish([]uuid.UUID{userID.(uuid.UUID)}, live.KindAccountChanged, "")
 		recordEvent(c, db, cfg, userID.(uuid.UUID), "deletion_cancelled", c.GetString("device_id"), "")
 		c.Status(http.StatusNoContent)
 	}

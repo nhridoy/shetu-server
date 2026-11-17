@@ -42,15 +42,14 @@ var notifyTwoFactor = func(cfg *config.Config, to, event string) {
 
 // twoFactorRow returns the user's two-factor row, enabled or in setup; nil when none.
 func twoFactorRow(db *gorm.DB, userID uuid.UUID) (*models.TwoFactor, error) {
-	var tf models.TwoFactor
-	err := db.First(&tf, "user_id = ?", userID).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	if err != nil {
+	var rows []models.TwoFactor
+	if err := db.Where("user_id = ?", userID).Limit(1).Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	return &tf, nil
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return &rows[0], nil
 }
 
 func writeCodeError(c *gin.Context, err error) {

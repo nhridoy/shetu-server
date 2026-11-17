@@ -65,6 +65,8 @@ func main() {
 	apiAuth.POST("/refresh", auth.RateLimit(cfg.RateLimitAuth), auth.HandleRefresh(db, cfg))
 	apiAuth.POST("/logout", auth.RateLimit(cfg.RateLimitAuth), auth.HandleLogout(db))
 	apiAuth.POST("/account-status", auth.RateLimit(cfg.RateLimitAuth), auth.HandleAccountStatus(db))
+	apiAuth.POST("/two-factor", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorVerify(db, cfg))
+	apiAuth.POST("/two-factor/email", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorEmail(db, cfg))
 	apiAuth.POST("/recovery", auth.RateLimit(cfg.RateLimitAuth), auth.HandleRecovery(db, cfg))
 	apiAuth.POST("/recovery/prefetch", auth.RateLimit(cfg.RateLimitAuth), auth.HandleRecoveryPrefetch(db))
 	apiAuth.POST("/verify-email", auth.RateLimit(cfg.RateLimitAuth), auth.HandleVerifyEmail(db, cfg))

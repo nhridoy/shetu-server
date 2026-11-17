@@ -46,6 +46,8 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	auth.POST("/recovery", HandleRecovery(db, cfg))
 	auth.POST("/recovery/prefetch", HandleRecoveryPrefetch(db))
 	auth.POST("/account-status", HandleAccountStatus(db))
+	auth.POST("/two-factor", HandleTwoFactorVerify(db, cfg))
+	auth.POST("/two-factor/email", HandleTwoFactorEmail(db, cfg))
 
 	protected := r.Group("/api/v1")
 	protected.Use(JWTMiddleware(cfg, db), DeletionGate(db))

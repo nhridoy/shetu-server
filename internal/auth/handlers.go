@@ -324,30 +324,10 @@ func HandleLogin(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		now := time.Now()
-		db.Model(&user).Update("last_login_at", &now)
-
-		recordDevice(db, user.ID, req.DeviceID, true)
-		rtToken, err := createRefreshToken(db, user.ID, req.DeviceID, cfg)
-		if err != nil {
-			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create refresh token")
+		if gateTwoFactor(c, db, user.ID, req.DeviceID, challengeLogin, challengeTTL) {
 			return
 		}
-
-		at, err := GenerateAccessToken(user.ID, req.DeviceID, cfg)
-		if err != nil {
-			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate tokens")
-			return
-		}
-
-		keyring := fetchKeyring(db, user.ID)
-
-		Success(c, http.StatusOK, gin.H{
-			"access_token":  at,
-			"refresh_token": rtToken,
-			"user":          user,
-			"keyring":       keyring,
-		})
+		issueSignIn(c, db, cfg, user, req.DeviceID)
 	}
 }
 

@@ -483,24 +483,7 @@ func HandleOAuthCallback(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		recordDevice(db, user.ID, oauthState.DeviceID, true)
-		rt, err := createRefreshToken(db, user.ID, oauthState.DeviceID, cfg)
-		if err != nil {
-			c.Redirect(http.StatusFound, oauthTargetURL(&oauthState, cfg, "error", url.Values{"message": []string{"token_generation_failed"}}))
-			return
-		}
-
-		at, err := GenerateAccessToken(user.ID, oauthState.DeviceID, cfg)
-		if err != nil {
-			c.Redirect(http.StatusFound, oauthTargetURL(&oauthState, cfg, "error", url.Values{"message": []string{"token_generation_failed"}}))
-			return
-		}
-
-		c.Redirect(http.StatusFound, oauthTargetURL(&oauthState, cfg, "success", url.Values{
-			"access_token":  []string{at},
-			"refresh_token": []string{rt},
-			"user_id":       []string{user.ID.String()},
-		}))
+		finishOAuthCallback(c, db, cfg, &oauthState, user)
 	}
 }
 
@@ -552,6 +535,10 @@ func HandleOAuthExchange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		var user models.User
 		if db.Where("id = ?", userID).First(&user).Error != nil {
 			Error(c, http.StatusNotFound, "NOT_FOUND", "user not found")
+			return
+		}
+
+		if gateTwoFactor(c, db, userID, ac.DeviceID, challengeOAuth, challengeTTL) {
 			return
 		}
 

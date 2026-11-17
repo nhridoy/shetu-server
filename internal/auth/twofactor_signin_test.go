@@ -62,8 +62,9 @@ func challengeOf(t *testing.T, w *httptest.ResponseRecorder) string {
 		} `json:"error"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &env)
-	if w.Code != http.StatusUnauthorized || env.Error.Code != "TWO_FACTOR_REQUIRED" || env.Error.Challenge == "" {
-		t.Fatalf("want 401 TWO_FACTOR_REQUIRED with challenge, got %d %s", w.Code, w.Body.String())
+	// 403, not 401: the app's HTTP layer reads a 401 as an expired session and retries.
+	if w.Code != http.StatusForbidden || env.Error.Code != "TWO_FACTOR_REQUIRED" || env.Error.Challenge == "" {
+		t.Fatalf("want 403 TWO_FACTOR_REQUIRED with challenge, got %d %s", w.Code, w.Body.String())
 	}
 	return env.Error.Challenge
 }
@@ -271,4 +272,26 @@ func TestTwoFactor_OAuthExchangeAsksForCode(t *testing.T) {
 	seedTwoFactor(t, db, cfg, uid)
 	seedAuthCode(t, db, "exchange-2fa", "oauth_setup", uid, "dev1", time.Now().Add(15*time.Minute), nil)
 	challengeOf(t, postJSONTo(r, "/api/v1/auth/oauth/exchange", gin.H{"setup_code": "exchange-2fa", "user_id": uid.String()}, ""))
+}
+
+func TestTwoFactor_AccountLockoutAfterManyWrongCodes(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, verifier := seedUserWithVerifier(t, db, "lockout@example.com")
+	seedTwoFactor(t, db, cfg, uid)
+	// Fresh challenges don't reset the count: 4 challenges x 5 wrong codes.
+	for i := 0; i < 4; i++ {
+		ch := challengeOf(t, loginRaw(t, r, db, "lockout@example.com", verifier, uuid.NewString()))
+		for j := 0; j < 5; j++ {
+			verifyCode(r, ch, "000000", "totp")
+		}
+	}
+	w := loginRaw(t, r, db, "lockout@example.com", verifier, uuid.NewString())
+	if w.Code != http.StatusTooManyRequests || errCode(w.Body.Bytes()) != "TWO_FACTOR_LOCKED" {
+		t.Fatalf("want 429 TWO_FACTOR_LOCKED, got %d %s", w.Code, w.Body.String())
+	}
+	// An hour-old burst no longer counts.
+	db.Model(&models.TwoFactorChallenge{}).Where("user_id = ?", uid).Update("created_at", time.Now().Add(-time.Hour))
+	challengeOf(t, loginRaw(t, r, db, "lockout@example.com", verifier, uuid.NewString()))
 }

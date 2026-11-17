@@ -54,10 +54,11 @@ func twoFactorRow(db *gorm.DB, userID uuid.UUID) (*models.TwoFactor, error) {
 
 func writeCodeError(c *gin.Context, err error) {
 	switch {
+	// 400, not 401: a 401 on a signed-in call makes the app drop its session.
 	case errors.Is(err, errCodeReused):
-		Error(c, http.StatusUnauthorized, "TWO_FACTOR_CODE_REUSED", "This code was just used. Wait for the next code.")
+		Error(c, http.StatusBadRequest, "TWO_FACTOR_CODE_REUSED", "This code was just used. Wait for the next code.")
 	case errors.Is(err, errCodeInvalid):
-		Error(c, http.StatusUnauthorized, "TWO_FACTOR_INVALID", "That code isn't right.")
+		Error(c, http.StatusBadRequest, "TWO_FACTOR_INVALID", "That code isn't right.")
 	case errors.Is(err, errTwoFactorUnavailable):
 		Error(c, http.StatusServiceUnavailable, "TWO_FACTOR_UNAVAILABLE", "Two-factor isn't available on this server.")
 	default:

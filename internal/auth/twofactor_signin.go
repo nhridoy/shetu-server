@@ -23,6 +23,9 @@ const (
 	recoveryChallengeTTL = 15 * time.Minute
 	recoveryProofTTL     = 10 * time.Minute
 	maxChallengeAttempts = 5
+	// Per account: fresh challenges don't reset the guess count.
+	maxAccountAttempts   = 20
+	accountAttemptWindow = 15 * time.Minute
 
 	twoFactorRecoveryPurpose = "two_factor_recovery"
 )
@@ -55,9 +58,10 @@ func newChallenge(db *gorm.DB, userID uuid.UUID, deviceID, path string, ttl time
 }
 
 // twoFactorRequired answers a passed first factor: no tokens or key material, only a challenge.
-// The message is readable by clients that predate two-factor.
+// The message is readable by clients that predate two-factor. 403, like VERIFICATION_REQUIRED:
+// the app's HTTP layer treats a 401 as an expired session and would refresh and resend.
 func twoFactorRequired(c *gin.Context, token string) {
-	c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{
+	c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
 		"code":       "TWO_FACTOR_REQUIRED",
 		"message":    "Enter your two-factor code. Update Shetu if you don't see a code field.",
 		"challenge":  token,
@@ -70,6 +74,18 @@ func twoFactorRequired(c *gin.Context, token string) {
 func gateTwoFactor(c *gin.Context, db *gorm.DB, userID uuid.UUID, deviceID, path string, ttl time.Duration) bool {
 	if _, on := twoFactorOn(db, userID); !on {
 		return false
+	}
+	var recent int64
+	err := db.Model(&models.TwoFactorChallenge{}).
+		Where("user_id = ? AND path IN ? AND created_at > ?", userID, []string{challengeLogin, challengeOAuth, challengeRecovery}, time.Now().Add(-accountAttemptWindow)).
+		Select("COALESCE(SUM(attempts), 0)").Scan(&recent).Error
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to start two-factor")
+		return true
+	}
+	if recent >= maxAccountAttempts {
+		Error(c, http.StatusTooManyRequests, "TWO_FACTOR_LOCKED", "Too many two-factor attempts. Try again in 15 minutes.")
+		return true
 	}
 	token, err := newChallenge(db, userID, deviceID, path, ttl)
 	if err != nil {

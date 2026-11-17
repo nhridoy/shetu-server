@@ -168,8 +168,9 @@ func TestTwoFactor_ConfirmWrongCodeKeepsOff(t *testing.T) {
 	access, _ := loginWithDevice(t, r, db, "wrong@example.com", verifier, uuid.NewString())
 	postJSONTo(r, "/api/v1/me/two-factor/setup", gin.H{}, access)
 	w := postJSONTo(r, "/api/v1/me/two-factor/confirm", gin.H{"code": "000000"}, access)
-	if w.Code != http.StatusUnauthorized || errCode(w.Body.Bytes()) != "TWO_FACTOR_INVALID" {
-		t.Fatalf("want 401 TWO_FACTOR_INVALID, got %d %s", w.Code, w.Body.String())
+	// 400, not 401: a 401 on a signed-in call makes the app drop its session.
+	if w.Code != http.StatusBadRequest || errCode(w.Body.Bytes()) != "TWO_FACTOR_INVALID" {
+		t.Fatalf("want 400 TWO_FACTOR_INVALID, got %d %s", w.Code, w.Body.String())
 	}
 	if twoFactorStatus(t, r, access).Enabled {
 		t.Fatal("a wrong code must keep two-factor off")
@@ -227,7 +228,7 @@ func TestTwoFactor_DisableNeedsCode(t *testing.T) {
 	access, _ := loginWithDevice(t, r, db, "off@example.com", verifier, uuid.NewString())
 	_, backup := enableTwoFactor(t, r, access, clock)
 
-	if w := postJSONTo(r, "/api/v1/me/two-factor/disable", gin.H{"code": "000000"}, access); w.Code != http.StatusUnauthorized {
+	if w := postJSONTo(r, "/api/v1/me/two-factor/disable", gin.H{"code": "000000"}, access); w.Code != http.StatusBadRequest {
 		t.Fatalf("wrong code: %d %s", w.Code, w.Body.String())
 	}
 	if !twoFactorStatus(t, r, access).Enabled {
@@ -267,7 +268,7 @@ func TestTwoFactor_RegenerateReplacesCodes(t *testing.T) {
 	if len(out.BackupCodes) != 10 || out.BackupCodes[0] == old[0] {
 		t.Fatalf("new codes: %v", out.BackupCodes)
 	}
-	if w := postJSONTo(r, "/api/v1/me/two-factor/disable", gin.H{"code": old[1]}, access); w.Code != http.StatusUnauthorized {
+	if w := postJSONTo(r, "/api/v1/me/two-factor/disable", gin.H{"code": old[1]}, access); w.Code != http.StatusBadRequest {
 		t.Fatalf("an old backup code must stop working: %d", w.Code)
 	}
 	if st := twoFactorStatus(t, r, access); st.BackupCodesLeft != 10 {

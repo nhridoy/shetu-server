@@ -295,3 +295,46 @@ func TestTwoFactor_AccountLockoutAfterManyWrongCodes(t *testing.T) {
 	db.Model(&models.TwoFactorChallenge{}).Where("user_id = ?", uid).Update("created_at", time.Now().Add(-time.Hour))
 	challengeOf(t, loginRaw(t, r, db, "lockout@example.com", verifier, uuid.NewString()))
 }
+
+func TestTwoFactor_LookupErrorFailsClosed(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	_, verifier := seedRecoverable(t, db, "lookup@example.com")
+	if err := db.Migrator().DropTable(&models.TwoFactor{}); err != nil {
+		t.Fatal(err)
+	}
+	if w := loginRaw(t, r, db, "lookup@example.com", verifier, uuid.NewString()); w.Code != http.StatusInternalServerError {
+		t.Fatalf("login: want 500, got %d %s", w.Code, w.Body.String())
+	}
+	if w := prefetchRaw(r); w.Code != http.StatusInternalServerError {
+		t.Fatalf("prefetch: want 500, got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTwoFactor_AccountLimitCountsEveryGuess(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := twoFactorConfig()
+	r := setupHandlerRouter(db, cfg)
+	uid, _ := seedRecoverable(t, db, "every@example.com")
+	seedTwoFactor(t, db, cfg, uid)
+	// Open every challenge before guessing, so issuance-time checks see no attempts.
+	var chs []string
+	for i := 0; i < 5; i++ {
+		chs = append(chs, challengeOf(t, prefetchRaw(r)))
+	}
+	invalid, locked := 0, 0
+	for _, ch := range chs {
+		for j := 0; j < 5; j++ {
+			switch errCode(verifyCode(r, ch, "000000", "totp").Body.Bytes()) {
+			case "TWO_FACTOR_INVALID":
+				invalid++
+			case "TWO_FACTOR_LOCKED":
+				locked++
+			}
+		}
+	}
+	if invalid != 20 || locked != 5 {
+		t.Fatalf("want 20 checked and 5 locked, got %d checked %d locked", invalid, locked)
+	}
+}

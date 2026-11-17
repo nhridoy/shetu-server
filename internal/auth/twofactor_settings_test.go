@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -287,5 +288,45 @@ func TestTwoFactor_DoesNotSignOutOtherDevices(t *testing.T) {
 	enableTwoFactor(t, r, access, clock)
 	if w := doJSON(r, http.MethodGet, "/api/v1/test-protected", nil, other); w.Code != http.StatusOK {
 		t.Fatalf("other device signed out: %d", w.Code)
+	}
+}
+
+func TestTwoFactor_SetupRefusedBeforeAccountSetup(t *testing.T) {
+	db := setupTestDB(t)
+	r := setupHandlerRouter(db, twoFactorConfig())
+	uid, verifier := seedUserWithVerifier(t, db, "uninit@example.com")
+	markVerified(t, db, uid)
+	access, _ := loginWithDevice(t, r, db, "uninit@example.com", verifier, uuid.NewString())
+	db.Model(&models.User{}).Where("id = ?", uid).Update("initialized", false)
+	w := postJSONTo(r, "/api/v1/me/two-factor/setup", gin.H{}, access)
+	if w.Code != http.StatusBadRequest || errCode(w.Body.Bytes()) != "ACCOUNT_NOT_SET_UP" {
+		t.Fatalf("want 400 ACCOUNT_NOT_SET_UP, got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTwoFactor_PendingWriteNeverRevertsEnabled(t *testing.T) {
+	db := setupTestDB(t)
+	uid, _ := seedUserWithVerifier(t, db, "revert@example.com")
+	now := time.Now()
+	db.Create(&models.TwoFactor{UserID: uid, Secret: "sealed", EnabledAt: &now, LastStep: 9})
+	if err := savePendingSecret(db, uid, "other"); !errors.Is(err, errTwoFactorEnabled) {
+		t.Fatalf("want errTwoFactorEnabled, got %v", err)
+	}
+	var row models.TwoFactor
+	db.First(&row, "user_id = ?", uid)
+	if row.EnabledAt == nil || row.Secret != "sealed" || row.LastStep != 9 || row.PendingSecret != "" {
+		t.Fatalf("enabled row changed: %+v", row)
+	}
+	other, _ := seedUserWithVerifier(t, db, "fresh@example.com")
+	if err := savePendingSecret(db, other, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePendingSecret(db, other, "p2"); err != nil {
+		t.Fatal(err)
+	}
+	var fresh models.TwoFactor
+	db.First(&fresh, "user_id = ?", other)
+	if fresh.PendingSecret != "p2" || fresh.EnabledAt != nil {
+		t.Fatalf("pending not replaced: %+v", fresh)
 	}
 }

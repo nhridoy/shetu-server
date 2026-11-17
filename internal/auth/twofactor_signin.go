@@ -30,13 +30,30 @@ const (
 	twoFactorRecoveryPurpose = "two_factor_recovery"
 )
 
-// twoFactorOn returns the user's enabled two-factor row.
-func twoFactorOn(db *gorm.DB, userID uuid.UUID) (*models.TwoFactor, bool) {
+// twoFactorOn returns the user's enabled two-factor row. A lookup error is returned, never
+// read as "off": callers must fail closed.
+func twoFactorOn(db *gorm.DB, userID uuid.UUID) (*models.TwoFactor, bool, error) {
 	tf, err := twoFactorRow(db, userID)
-	if err != nil || tf == nil || tf.EnabledAt == nil {
-		return nil, false
+	if err != nil {
+		return nil, false, err
 	}
-	return tf, true
+	if tf == nil || tf.EnabledAt == nil {
+		return nil, false, nil
+	}
+	return tf, true, nil
+}
+
+// accountAttempts sums the user's recent second-factor guesses across all challenges.
+func accountAttempts(db *gorm.DB, userID uuid.UUID) (int64, error) {
+	var recent int64
+	err := db.Model(&models.TwoFactorChallenge{}).
+		Where("user_id = ? AND path IN ? AND created_at > ?", userID, []string{challengeLogin, challengeOAuth, challengeRecovery}, time.Now().Add(-accountAttemptWindow)).
+		Select("COALESCE(SUM(attempts), 0)").Scan(&recent).Error
+	return recent, err
+}
+
+func accountLocked(c *gin.Context) {
+	Error(c, http.StatusTooManyRequests, "TWO_FACTOR_LOCKED", "Too many two-factor attempts. Try again in 15 minutes.")
 }
 
 func newChallenge(db *gorm.DB, userID uuid.UUID, deviceID, path string, ttl time.Duration) (string, error) {
@@ -72,19 +89,21 @@ func twoFactorRequired(c *gin.Context, token string) {
 // gateTwoFactor stops a sign-in at the second factor when the account has two-factor on.
 // It reports whether it answered the request.
 func gateTwoFactor(c *gin.Context, db *gorm.DB, userID uuid.UUID, deviceID, path string, ttl time.Duration) bool {
-	if _, on := twoFactorOn(db, userID); !on {
+	_, on, err := twoFactorOn(db, userID)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check two-factor")
+		return true
+	}
+	if !on {
 		return false
 	}
-	var recent int64
-	err := db.Model(&models.TwoFactorChallenge{}).
-		Where("user_id = ? AND path IN ? AND created_at > ?", userID, []string{challengeLogin, challengeOAuth, challengeRecovery}, time.Now().Add(-accountAttemptWindow)).
-		Select("COALESCE(SUM(attempts), 0)").Scan(&recent).Error
+	recent, err := accountAttempts(db, userID)
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to start two-factor")
 		return true
 	}
 	if recent >= maxAccountAttempts {
-		Error(c, http.StatusTooManyRequests, "TWO_FACTOR_LOCKED", "Too many two-factor attempts. Try again in 15 minutes.")
+		accountLocked(c)
 		return true
 	}
 	token, err := newChallenge(db, userID, deviceID, path, ttl)
@@ -170,7 +189,21 @@ func HandleTwoFactorVerify(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			challengeExpired(c)
 			return
 		}
-		tf, on := twoFactorOn(db, ch.UserID)
+		// The attempt is counted first, so concurrent guesses can't all pass this check.
+		recent, err := accountAttempts(db, ch.UserID)
+		if err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check the code")
+			return
+		}
+		if recent > maxAccountAttempts {
+			accountLocked(c)
+			return
+		}
+		tf, on, err := twoFactorOn(db, ch.UserID)
+		if err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check the code")
+			return
+		}
 		if !on {
 			challengeExpired(c)
 			return
@@ -251,7 +284,12 @@ func HandleTwoFactorEmail(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 // finishOAuthCallback ends an OAuth sign-in for an existing, initialized user: the app gets
 // tokens, or a challenge when the account has two-factor on.
 func finishOAuthCallback(c *gin.Context, db *gorm.DB, cfg *config.Config, state *models.OAuthState, user models.User) {
-	if _, on := twoFactorOn(db, user.ID); on {
+	_, on, err := twoFactorOn(db, user.ID)
+	if err != nil {
+		c.Redirect(http.StatusFound, oauthTargetURL(state, cfg, "error", url.Values{"message": []string{"two_factor_failed"}}))
+		return
+	}
+	if on {
 		token, err := newChallenge(db, user.ID, state.DeviceID, challengeOAuth, challengeTTL)
 		if err != nil {
 			c.Redirect(http.StatusFound, oauthTargetURL(state, cfg, "error", url.Values{"message": []string{"two_factor_failed"}}))

@@ -134,8 +134,9 @@ func RateLimit(max int) gin.HandlerFunc {
 		now := time.Now()
 		window := time.Minute
 
+		// Held only for the bookkeeping, never across c.Next(): nested limiters with the
+		// same limit share this mutex, and the handler must not serialize all requests.
 		limiter.mu.Lock()
-		defer limiter.mu.Unlock()
 
 		reqs := limiter.requests[ip]
 		cutoff := now.Add(-window)
@@ -148,6 +149,7 @@ func RateLimit(max int) gin.HandlerFunc {
 		limiter.requests[ip] = valid
 
 		if len(valid) >= max {
+			limiter.mu.Unlock()
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": gin.H{
 					"code":       "RATE_LIMITED",
@@ -159,6 +161,7 @@ func RateLimit(max int) gin.HandlerFunc {
 		}
 
 		limiter.requests[ip] = append(limiter.requests[ip], now)
+		limiter.mu.Unlock()
 		c.Next()
 	}
 }

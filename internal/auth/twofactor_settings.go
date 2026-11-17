@@ -19,7 +19,31 @@ import (
 
 const twoFactorSetupPurpose = "two_factor_setup"
 
-var errTwoFactorUnavailable = errors.New("two-factor unavailable")
+var (
+	errTwoFactorUnavailable = errors.New("two-factor unavailable")
+	errTwoFactorEnabled     = errors.New("two-factor already on")
+)
+
+// savePendingSecret stores a setup's pending secret. It only touches a row still in setup
+// (or creates one), so a setup racing a confirm can't turn two-factor back off.
+func savePendingSecret(db *gorm.DB, userID uuid.UUID, sealed string) error {
+	res := db.Model(&models.TwoFactor{}).Where("user_id = ? AND enabled_at IS NULL", userID).Update("pending_secret", sealed)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		return nil
+	}
+	if err := db.Create(&models.TwoFactor{UserID: userID, PendingSecret: sealed}).Error; err != nil {
+		var enabled int64
+		db.Model(&models.TwoFactor{}).Where("user_id = ? AND enabled_at IS NOT NULL", userID).Count(&enabled)
+		if enabled > 0 {
+			return errTwoFactorEnabled
+		}
+		return err
+	}
+	return nil
+}
 
 // deliverOtp sends an email code; tests replace it to read the code.
 var deliverOtp = func(cfg *config.Config, to, code string) error {
@@ -122,15 +146,19 @@ func isDigits(s string) bool {
 func consumeEmailCode(db *gorm.DB, userID uuid.UUID, purpose, code string) error {
 	var row models.AuthCode
 	err := db.Where("user_id = ? AND purpose = ? AND used_at IS NULL", userID, purpose).Order("created_at DESC").First(&row).Error
-	if err != nil || row.ExpiresAt.Before(time.Now()) || row.Attempts >= maxOtpAttempts {
+	if err != nil || row.ExpiresAt.Before(time.Now()) {
+		return errCodeInvalid
+	}
+	// Reserve the attempt before comparing, so parallel guesses can't exceed the limit.
+	res := db.Model(&models.AuthCode{}).Where("id = ? AND attempts < ?", row.ID, maxOtpAttempts).Update("attempts", gorm.Expr("attempts + 1"))
+	if res.Error != nil || res.RowsAffected == 0 {
 		return errCodeInvalid
 	}
 	sum := sha256.Sum256([]byte(normalizeCode(code)))
 	if !ConstantTimeCompare([]byte(base64.RawStdEncoding.EncodeToString(sum[:])), []byte(row.CodeHash)) {
-		db.Model(&models.AuthCode{}).Where("id = ?", row.ID).Update("attempts", gorm.Expr("attempts + 1"))
 		return errCodeInvalid
 	}
-	res := db.Where("id = ?", row.ID).Delete(&models.AuthCode{})
+	res = db.Where("id = ?", row.ID).Delete(&models.AuthCode{})
 	if res.Error != nil || res.RowsAffected == 0 {
 		return errCodeInvalid
 	}
@@ -215,6 +243,11 @@ func HandleTwoFactorSetup(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		if !ok {
 			return
 		}
+		// OAuth setup can issue tokens without a challenge; it must finish before two-factor.
+		if !user.Initialized {
+			Error(c, http.StatusBadRequest, "ACCOUNT_NOT_SET_UP", "Finish setting up your account first.")
+			return
+		}
 		tf, err := twoFactorRow(db, user.ID)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load two-factor")
@@ -234,8 +267,11 @@ func HandleTwoFactorSetup(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to store the secret")
 			return
 		}
-		row := models.TwoFactor{UserID: user.ID, PendingSecret: sealed}
-		if err := db.Save(&row).Error; err != nil {
+		if err := savePendingSecret(db, user.ID, sealed); err != nil {
+			if errors.Is(err, errTwoFactorEnabled) {
+				Error(c, http.StatusConflict, "TWO_FACTOR_ENABLED", "Two-factor is already on.")
+				return
+			}
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to store the secret")
 			return
 		}

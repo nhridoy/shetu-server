@@ -83,7 +83,7 @@ func TestTwoFactor_RecoveryWithAuthenticator(t *testing.T) {
 	if w := recoverWith(t, r, v.TwoFactorProof); w.Code != http.StatusNoContent {
 		t.Fatalf("recovery: %d %s", w.Code, w.Body.String())
 	}
-	if _, on := twoFactorOn(db, uid); !on {
+	if _, on, _ := twoFactorOn(db, uid); !on {
 		t.Fatal("an authenticator recovery must keep two-factor on")
 	}
 }
@@ -134,13 +134,13 @@ func TestTwoFactor_RecoveryEmailFallbackTurnsOff(t *testing.T) {
 	}
 	var v recoveryVerified
 	dataOf(t, w.Body.Bytes(), &v)
-	if _, on := twoFactorOn(db, uid); !on {
+	if _, on, _ := twoFactorOn(db, uid); !on {
 		t.Fatal("two-factor must stay on until the recovery completes")
 	}
 	if w := recoverWith(t, r, v.TwoFactorProof); w.Code != http.StatusNoContent {
 		t.Fatalf("recovery: %d %s", w.Code, w.Body.String())
 	}
-	if _, on := twoFactorOn(db, uid); on {
+	if _, on, _ := twoFactorOn(db, uid); on {
 		t.Fatal("the email fallback must turn two-factor off")
 	}
 	var codes int64
@@ -167,7 +167,7 @@ func TestTwoFactor_EmailFallbackWorksWithoutKey(t *testing.T) {
 	if w := recoverWith(t, r, v.TwoFactorProof); w.Code != http.StatusNoContent {
 		t.Fatalf("recovery: %d %s", w.Code, w.Body.String())
 	}
-	if _, on := twoFactorOn(db, uid); on {
+	if _, on, _ := twoFactorOn(db, uid); on {
 		t.Fatal("still on")
 	}
 }

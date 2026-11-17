@@ -578,7 +578,12 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		disableTwoFactor := false
-		if _, on := twoFactorOn(db, user.ID); on {
+		_, on, err := twoFactorOn(db, user.ID)
+		if err != nil {
+			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check two-factor")
+			return
+		}
+		if on {
 			proof, ok := takeRecoveryProof(db, user.ID, req.TwoFactorProof)
 			if !ok {
 				challengeExpired(c)

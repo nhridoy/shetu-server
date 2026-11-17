@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"log/slog"
 	"net/http"
 	"time"
@@ -364,10 +365,18 @@ func HandleRefresh(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		if rt.RevokedAt != nil {
+		// Only a token that was already rotated means someone replayed a copy (theft): sign
+		// everything out. A token revoked on purpose (sign-out, password change, revoke) is just
+		// refused; with live signals its device refreshes within a second, and treating that as
+		// theft would sign out the device that made the change too.
+		if rt.RotatedAt != nil {
 			db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked_at IS NULL", rt.UserID).
 				Update("revoked_at", time.Now())
 			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "refresh token revoked (reuse detected)")
+			return
+		}
+		if rt.RevokedAt != nil {
+			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "refresh token revoked")
 			return
 		}
 
@@ -511,6 +520,7 @@ func HandlePasswordChange(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Where("user_id = ? AND device_id <> ? AND revoked_at IS NULL", user.ID, deviceID).
 			Update("revoked_at", time.Now())
 
+		live.Default.Publish([]uuid.UUID{user.ID}, live.KindAccountChanged, deviceID)
 		recordEvent(c, db, cfg, user.ID, "password_changed", deviceID, "")
 		c.Status(http.StatusNoContent)
 	}
@@ -659,6 +669,7 @@ func HandleRecovery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			slog.Error("failed to sign out devices after recovery", "error", err)
 			signedOut = ""
 		}
+		live.Default.Publish([]uuid.UUID{user.ID}, live.KindAccountChanged, "")
 		recordEvent(c, db, cfg, user.ID, "recovery_used", "", signedOut)
 		if disableTwoFactor {
 			recordEvent(c, db, cfg, user.ID, "two_factor_disabled", "", "email")

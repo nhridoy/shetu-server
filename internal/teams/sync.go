@@ -3,6 +3,7 @@ package teams
 import (
 	"encoding/json"
 	"errors"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"net/http"
 	"strings"
 	"time"
@@ -78,18 +79,34 @@ func registerTeamSyncRoute(protected *gin.RouterGroup, db *gorm.DB) {
 			}
 		}
 		response := teamSyncResponse{Results: make([]teamSyncResult, 0, len(request.Operations)), Snapshot: map[string]any{}, Envelopes: []models.VaultKeyEnvelope{}, HasMore: false}
+		// This endpoint is also every app's poll: signal only when a write was accepted, or apps
+		// would keep waking each other.
+		var before []uuid.UUID
+		if len(request.Operations) > 0 {
+			before = teamAudience(db, actor)
+		}
+		accepted := false
+		signal := func() {
+			if accepted {
+				live.Default.Publish(union(before, teamAudience(db, actor)), live.KindChanged, c.GetString("device_id"))
+			}
+		}
 		for _, operation := range request.Operations {
 			if operation.OperationID == uuid.Nil || len(operation.Payload) == 0 || len(operation.Payload) > teamSyncMaxOperation || !json.Valid(operation.Payload) {
+				signal()
 				auth.Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "invalid team operation")
 				return
 			}
 			result, err := applyTeamSyncOperation(db, actor, operation)
 			if err != nil {
+				signal()
 				auth.Error(c, http.StatusInternalServerError, "TEAM_SYNC_FAILED", "could not apply team sync operation")
 				return
 			}
+			accepted = accepted || result.Status == "accepted"
 			response.Results = append(response.Results, result)
 		}
+		signal()
 		var cursor *uuid.UUID
 		if request.Cursor != nil && *request.Cursor != "" {
 			id, err := uuid.Parse(*request.Cursor)

@@ -23,7 +23,9 @@ func userID(c *gin.Context) (uuid.UUID, bool) {
 }
 
 func RegisterRoutes(protected *gin.RouterGroup, db *gorm.DB) {
+	// The batched team sync is also every app's poll; it signals only for accepted writes.
 	registerTeamSyncRoute(protected, db)
+	protected = protected.Group("", notifyAfterTeamWrite(db))
 	registerInviteRoutes(protected, db)
 	registerVaultRoutes(protected, db)
 	registerMemberRoutes(protected, db)

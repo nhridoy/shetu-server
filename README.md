@@ -47,6 +47,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 The container listens on 8080; `SHETU_HTTP_PORT` and `SHETU_BIND_IP` control the host side. Always put it behind a TLS-terminating reverse proxy such as Caddy, then set `BASE_URL` to the public HTTPS URL and `TRUSTED_PROXIES` to the proxy's address. **If the proxy runs on the same host, set `SHETU_BIND_IP=127.0.0.1`.** The default `0.0.0.0` publishes plain HTTP on every interface, where clients could bypass TLS and send credentials unencrypted. Otherwise, firewall port 8080 so only the proxy can reach it.
 
+Live updates (apps learning about changes within a second) assume one server process; behind several copies, changes reach apps on other copies within 5 minutes. The proxy must not buffer responses (Caddy streams them as written).
+
 The [self-hosting guide](https://shetu.iamnahid.com/docs/server) has a full Compose file with PostgreSQL, the reverse proxy setup, OAuth, email verification and upgrades.
 
 To build and run the image from this checkout instead:

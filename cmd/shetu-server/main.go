@@ -12,6 +12,7 @@ import (
 	"github.com/nhridoy/shetu-server/internal/auth"
 	"github.com/nhridoy/shetu-server/internal/config"
 	"github.com/nhridoy/shetu-server/internal/database"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"github.com/nhridoy/shetu-server/internal/models"
 	"github.com/nhridoy/shetu-server/internal/purge"
 	syncapi "github.com/nhridoy/shetu-server/internal/sync"
@@ -92,6 +93,7 @@ func main() {
 	protected.POST("/me/devices/revoke-others", auth.HandleRevokeOtherDevices(db, cfg))
 	protected.GET("/me/two-factor", auth.HandleTwoFactorStatus(db, cfg))
 	protected.GET("/me/security-events", auth.HandleListSecurityEvents(db))
+	protected.GET("/live", live.HandleLive())
 	protected.POST("/me/two-factor/setup", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorSetup(db, cfg))
 	protected.POST("/me/two-factor/confirm", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorConfirm(db, cfg))
 	protected.POST("/me/two-factor/disable", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorDisable(db, cfg))

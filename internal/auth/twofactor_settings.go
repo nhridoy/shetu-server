@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"github.com/nhridoy/shetu-server/internal/live"
 	"net/http"
 	"time"
 
@@ -364,6 +365,7 @@ func HandleTwoFactorConfirm(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to turn on two-factor")
 			return
 		}
+		live.Default.Publish([]uuid.UUID{user.ID}, live.KindAccountChanged, "")
 		recordEvent(c, db, cfg, user.ID, "two_factor_enabled", c.GetString("device_id"), "")
 		Success(c, http.StatusOK, gin.H{"backup_codes": codes})
 	}
@@ -400,6 +402,7 @@ func HandleTwoFactorDisable(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 			Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to turn off two-factor")
 			return
 		}
+		live.Default.Publish([]uuid.UUID{user.ID}, live.KindAccountChanged, "")
 		recordEvent(c, db, cfg, user.ID, "two_factor_disabled", c.GetString("device_id"), "")
 		c.Status(http.StatusNoContent)
 	}

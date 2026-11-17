@@ -91,6 +91,7 @@ func main() {
 	protected.DELETE("/me/devices/:device_id", auth.HandleRevokeDevice(db))
 	protected.POST("/me/devices/revoke-others", auth.HandleRevokeOtherDevices(db))
 	protected.GET("/me/two-factor", auth.HandleTwoFactorStatus(db, cfg))
+	protected.GET("/me/security-events", auth.HandleListSecurityEvents(db))
 	protected.POST("/me/two-factor/setup", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorSetup(db, cfg))
 	protected.POST("/me/two-factor/confirm", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorConfirm(db, cfg))
 	protected.POST("/me/two-factor/disable", auth.RateLimit(cfg.RateLimitAuth), auth.HandleTwoFactorDisable(db, cfg))

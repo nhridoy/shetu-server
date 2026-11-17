@@ -58,7 +58,11 @@ var notifyTwoFactor = func(cfg *config.Config, to, event string) {
 	}
 	go func() {
 		// The error is not logged: SMTP errors often echo the recipient address.
-		if sender.SendTwoFactorNotice(to, event) != nil {
+		kind, detail := map[string]string{"enabled": "two_factor_enabled", "disabled": "two_factor_disabled", "disabled_by_email": "two_factor_disabled", "backup_used": "backup_code_used"}[event], ""
+		if event == "disabled_by_email" {
+			detail = "email"
+		}
+		if sender.SendSecurityNotice(to, kind, detail, "", time.Now()) != nil {
 			slog.Warn("two-factor notice not sent", "event", event)
 		}
 	}()

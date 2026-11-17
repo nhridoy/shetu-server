@@ -64,6 +64,7 @@ func setupHandlerRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	protected.DELETE("/me/devices/:device_id", HandleRevokeDevice(db))
 	protected.POST("/me/devices/revoke-others", HandleRevokeOtherDevices(db))
 	protected.GET("/me/two-factor", HandleTwoFactorStatus(db, cfg))
+	protected.GET("/me/security-events", HandleListSecurityEvents(db))
 	protected.POST("/me/two-factor/setup", HandleTwoFactorSetup(db, cfg))
 	protected.POST("/me/two-factor/confirm", HandleTwoFactorConfirm(db, cfg))
 	protected.POST("/me/two-factor/disable", HandleTwoFactorDisable(db, cfg))

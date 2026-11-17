@@ -134,6 +134,7 @@ func seedRichUser(t *testing.T, db *gorm.DB, at time.Time) seeded {
 		&models.TwoFactor{UserID: s.user, Secret: "sealed"},
 		&models.TwoFactorBackupCode{UserID: s.user, CodeHash: "bc"},
 		&models.TwoFactorChallenge{UserID: s.user, TokenHash: "ch", Path: "login", ExpiresAt: at.Add(time.Hour)},
+		&models.SecurityEvent{UserID: s.user, Kind: "sign_in", IP: "203.0.113.7"},
 		&models.LoginNonce{Email: goneEmail, NonceHash: "n1", ExpiresAt: at.Add(time.Hour)},
 		&models.LoginNonce{Email: "third@example.com", NonceHash: "n2", ExpiresAt: at.Add(time.Hour)},
 	)
@@ -185,6 +186,7 @@ func TestPurgeRemovesEverything(t *testing.T) {
 		{"two_factors", "user_id = ?", []any{s.user}},
 		{"two_factor_backup_codes", "user_id = ?", []any{s.user}},
 		{"two_factor_challenges", "user_id = ?", []any{s.user}},
+		{"security_events", "user_id = ?", []any{s.user}},
 		{"login_nonces", "email = ?", []any{goneEmail}},
 		{"team_sync_operations", "user_id = ?", []any{s.user}},
 		{"vaults", "owner_id = ? OR id IN ? OR team_id = ?", []any{s.user, gone, s.ownedTeam}},
@@ -422,5 +424,25 @@ func TestPurgeLocksUserAndVaultRows(t *testing.T) {
 	}
 	if locked["vaults"] != 2 {
 		t.Errorf("vault id reads locked %d times, want 2 (owned-team and personal)", locked["vaults"])
+	}
+}
+
+func TestPurgeOldSecurityEvents(t *testing.T) {
+	db := openDB(t)
+	uid := uuid.New()
+	if err := db.Create(&models.User{ID: uid, Email: "old-events@example.com"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	db.Create(&models.SecurityEvent{UserID: uid, Kind: "sign_in", CreatedAt: now.Add(-91 * 24 * time.Hour)})
+	db.Create(&models.SecurityEvent{UserID: uid, Kind: "sign_in", CreatedAt: now.Add(-89 * 24 * time.Hour)})
+	n, err := PurgeOldSecurityEvents(db, now)
+	if err != nil || n != 1 {
+		t.Fatalf("purged %d, %v; want 1", n, err)
+	}
+	var left int64
+	db.Model(&models.SecurityEvent{}).Where("user_id = ?", uid).Count(&left)
+	if left != 1 {
+		t.Fatalf("left %d, want 1", left)
 	}
 }

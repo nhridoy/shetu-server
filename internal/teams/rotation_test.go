@@ -204,3 +204,28 @@ func TestRotationCoversIdentities(t *testing.T) {
 		t.Fatalf("rotationRecord identities: %v %v", record, err)
 	}
 }
+
+func TestRotationCoversStorageAccounts(t *testing.T) {
+	db, err := gorm.Open(gormsqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := models.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	vaultID, id := uuid.New(), uuid.New()
+	if err := db.Create(&models.StorageAccount{ID: id, VaultID: vaultID, Name: "backups", Revision: 1, Data: "x"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := rotationInventory(db, vaultID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := inventory[rotationRowKey("storage_accounts", id)]; !ok {
+		t.Fatalf("storage_accounts missing from rotation inventory: %v", inventory)
+	}
+	record, err := rotationRecord(db, "storage_accounts", id)
+	if err != nil || record["name"] != "backups" {
+		t.Fatalf("rotationRecord storage_accounts: %v %v", record, err)
+	}
+}

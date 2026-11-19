@@ -47,17 +47,18 @@ func TestAutoMigrate(t *testing.T) {
 	t.Logf("tables created: %v", tables)
 
 	expectedTables := map[string]bool{
-		"users":          false,
-		"user_keys":      false,
-		"refresh_tokens": false,
-		"oauth_states":   false,
-		"auth_codes":     false,
-		"vaults":         false,
-		"groups":         false,
-		"hosts":          false,
-		"keys":           false,
-		"snippets":       false,
-		"identities":     false,
+		"users":            false,
+		"user_keys":        false,
+		"refresh_tokens":   false,
+		"oauth_states":     false,
+		"auth_codes":       false,
+		"vaults":           false,
+		"groups":           false,
+		"hosts":            false,
+		"keys":             false,
+		"snippets":         false,
+		"identities":       false,
+		"storage_accounts": false,
 	}
 
 	for _, table := range tables {

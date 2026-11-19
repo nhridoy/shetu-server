@@ -17,7 +17,7 @@ import (
 
 // vaultScoped are the tables whose rows belong to a vault (vault_id column).
 var vaultScoped = []any{
-	&models.Group{}, &models.Host{}, &models.Key{}, &models.Snippet{}, &models.Identity{}, &models.Workspace{},
+	&models.Group{}, &models.Host{}, &models.Key{}, &models.Snippet{}, &models.Identity{}, &models.StorageAccount{}, &models.Workspace{},
 	&models.Preset{}, &models.PortForward{}, &models.SessionHistory{}, &models.SessionOutputChunk{},
 	&models.SessionPreferences{}, &models.SyncChange{}, &models.SyncOperation{},
 	&models.VaultKeyEnvelope{}, &models.VaultRotation{},

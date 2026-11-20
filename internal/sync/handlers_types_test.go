@@ -2,6 +2,7 @@ package sync
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"testing"
@@ -57,5 +58,15 @@ func TestEverySavedRecordTypePushesAndPulls(t *testing.T) {
 	}
 	if len(decoded.Changes) != len(types) {
 		t.Fatalf("want %d types, got %d: %s", len(types), len(decoded.Changes), pull.Body.String())
+	}
+	// Each record comes back under its own table, not just in the right number.
+	pulled := map[string]bool{}
+	for _, change := range decoded.Changes {
+		pulled[change.Table+"/"+fmt.Sprint(change.Record["id"])] = true
+	}
+	for _, item := range types {
+		if !pulled[item.table+"/"+item.id.String()] {
+			t.Errorf("%s %s missing from the pull: %s", item.table, item.id, pull.Body.String())
+		}
 	}
 }

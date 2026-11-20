@@ -18,7 +18,7 @@ import (
 
 var errRotationConflict = errors.New("rotation state or snapshot changed")
 var errRotationInvalid = errors.New("invalid rotation payload")
-var rotationTables = []string{"groups", "hosts", "keys", "snippets", "identities", "workspaces", "presets", "port_forwards"}
+var rotationTables = []string{"groups", "hosts", "keys", "snippets", "identities", "storage_accounts", "workspaces", "presets", "port_forwards"}
 
 type rotationRow struct {
 	Table    string    `json:"table"`
@@ -128,6 +128,8 @@ func rotationRecord(tx *gorm.DB, table string, id uuid.UUID) (map[string]any, er
 		model = &models.Snippet{}
 	case "identities":
 		model = &models.Identity{}
+	case "storage_accounts":
+		model = &models.StorageAccount{}
 	case "workspaces":
 		model = &models.Workspace{}
 	case "presets":

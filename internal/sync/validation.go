@@ -25,6 +25,7 @@ var tableFields = map[string][]string{
 	"keys":                  {"description", "key_type", "fingerprint", "public_key"},
 	"snippets":              {"description", "tags"},
 	"identities":            {},
+	"storage_accounts":      {},
 	"workspaces":            {},
 	"presets":               {},
 	"port_forwards":         {"host_id", "mode"},

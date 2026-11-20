@@ -201,7 +201,7 @@ func applyOperation(tx *gorm.DB, vaultID uuid.UUID, operation PushOperation, dev
 		}
 	}
 	if operation.Table == "vaults" && operation.Record["deleted_at"] != nil {
-		for _, table := range []string{"port_forwards", "hosts", "groups", "keys", "snippets", "identities", "workspaces", "presets", "session_history", "session_output_chunks", "session_preferences"} {
+		for _, table := range []string{"port_forwards", "hosts", "groups", "keys", "snippets", "identities", "storage_accounts", "workspaces", "presets", "session_history", "session_output_chunks", "session_preferences"} {
 			var count int64
 			if err := tx.Table(table).Where("vault_id = ? AND deleted_at IS NULL", vaultID).Count(&count).Error; err != nil {
 				return PushResult{}, err
